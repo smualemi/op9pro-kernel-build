@@ -122,7 +122,60 @@ jobs:
             $GITHUB_WORKSPACE/toolchain/gcc-arm32
 
       # ─────────────────────────────────────────────
-      # 4. PREPARE DEFCONFIG
+      # 4. RESOLVE OPLUS VENDOR SYMLINKS
+      #    The kernel source contains broken symlinks
+      #    (sched_assist, sigkill_diagnosis, special_opt,
+      #    tuning, uad, etc.) that point to relative paths
+      #    like ../../vendor/oplus/kernel/<name>.
+      #    These vendor sources live in the device tree repo.
+      #    We must resolve them before building.
+      # ─────────────────────────────────────────────
+      - name: Resolve OPlus vendor symlinks
+        run: |
+          KERNEL_SRC="$GITHUB_WORKSPACE/kernel_source"
+          DT_SRC="$GITHUB_WORKSPACE/kernel_modules_devicetree"
+
+          echo "==> Finding broken symlinks in kernel source..."
+          # Find all broken symlinks in the kernel source
+          broken_links=$(find "$KERNEL_SRC" -type l ! -exec test -e {} \; -print 2>/dev/null || true)
+
+          if [ -z "$broken_links" ]; then
+            echo "==> No broken symlinks found."
+          else
+            echo "==> Found broken symlinks:"
+            echo "$broken_links"
+
+            for link in $broken_links; do
+              target=$(readlink "$link")
+              echo "  Symlink: $link -> $target"
+
+              # The symlinks typically point to ../../vendor/oplus/kernel/<name>
+              # We need to resolve this relative to the device tree repo
+              # Extract the vendor-relative path
+              vendor_rel=$(echo "$target" | sed 's|^\.\./\.\./||')
+
+              if [ -d "$DT_SRC/$vendor_rel" ]; then
+                echo "    ==> Found in device tree: $DT_SRC/$vendor_rel"
+                rm -f "$link"
+                cp -r "$DT_SRC/$vendor_rel" "$link"
+                echo "    ==> Copied successfully."
+              elif [ -f "$DT_SRC/$vendor_rel" ]; then
+                echo "    ==> Found file in device tree: $DT_SRC/$vendor_rel"
+                rm -f "$link"
+                cp "$DT_SRC/$vendor_rel" "$link"
+                echo "    ==> Copied successfully."
+              else
+                echo "    WARNING: Target not found in device tree: $DT_SRC/$vendor_rel"
+                echo "    ==> Removing broken symlink to prevent build errors."
+                rm -f "$link"
+              fi
+            done
+          fi
+
+          echo "==> Vendor symlink resolution complete."
+
+      # ─────────────────────────────────────────────
+      # 5. PREPARE DEFCONFIG
       #    Copy extracted stock config into kernel tree
       # ─────────────────────────────────────────────
       - name: Place stock defconfig
@@ -132,7 +185,7 @@ jobs:
           echo "==> Defconfig placed at arch/arm64/configs/${{ env.DEFCONFIG }}"
 
       # ─────────────────────────────────────────────
-      # 5. BUILD KERNEL
+      # 6. BUILD KERNEL
       # ─────────────────────────────────────────────
       - name: Set up environment & build
         run: |
@@ -207,7 +260,7 @@ jobs:
           ls -la out/arch/arm64/boot/${{ env.KERNEL_IMAGE }}
 
       # ─────────────────────────────────────────────
-      # 6. ANYKERNEL3 PACKAGING
+      # 7. ANYKERNEL3 PACKAGING
       # ─────────────────────────────────────────────
       - name: Clone AnyKernel3
         run: |
@@ -239,7 +292,7 @@ jobs:
           ls -lh "$GITHUB_WORKSPACE/${ZIP_NAME}"
 
       # ─────────────────────────────────────────────
-      # 7. UPLOAD ARTIFACT
+      # 8. UPLOAD ARTIFACT
       # ─────────────────────────────────────────────
       - name: Upload kernel ZIP artifact
         uses: actions/upload-artifact@v4
