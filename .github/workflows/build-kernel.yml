@@ -65,14 +65,13 @@ jobs:
       #    Matches stock: "clang version 11.0.2"
       #    Build ID: 6877366 based on r383902b1
       #
-      #    Uses git sparse-checkout to fetch ONLY the
-      #    clang-r383902b1 directory from the official
-      #    AOSP prebuilts repo (android11-release branch).
-      #    This avoids downloading the entire multi-GB repo.
+      #    IMPORTANT: clang-r383902b1 only exists on
+      #    android11-qpr3-release branch, NOT android11-release.
+      #    Using sparse-checkout to fetch only that directory.
       # ─────────────────────────────────────────────
       - name: Fetch AOSP Clang 11 (r383902b1) via sparse-checkout
         run: |
-          echo "==> Fetching AOSP Clang 11.0.2 (r383902b1) via sparse-checkout..."
+          echo "==> Fetching AOSP Clang 11.0.2 (r383902b1) from android11-qpr3-release..."
           CLANG_BASE="$GITHUB_WORKSPACE/toolchain/clang"
           mkdir -p "$CLANG_BASE"
           cd "$CLANG_BASE"
@@ -84,8 +83,8 @@ jobs:
           git sparse-checkout init --no-cone
           git sparse-checkout set "clang-r383902b1"
 
-          # Shallow fetch from the android11-release branch
-          git fetch --depth=1 origin android11-release
+          # Shallow fetch from android11-qpr3-release (the branch that has b1)
+          git fetch --depth=1 origin android11-qpr3-release
           git checkout FETCH_HEAD
 
           echo "==> Sparse-checkout complete."
@@ -93,24 +92,20 @@ jobs:
       - name: Verify Clang toolchain
         run: |
           CLANG_BIN="$GITHUB_WORKSPACE/toolchain/clang/clang-r383902b1/bin/clang"
-          echo "==> Checking if clang binary exists..."
-          ls -la "$CLANG_BIN" || true
-          file "$CLANG_BIN" || true
+          echo "==> Verifying clang binary..."
 
-          echo "==> Searching for clang binary in toolchain dir..."
-          find $GITHUB_WORKSPACE/toolchain/clang -maxdepth 4 -type f -name "clang" 2>/dev/null | head -10
-
-          echo "==> Attempting to run clang --version..."
-          "$CLANG_BIN" --version || {
-            echo "ERROR: clang binary not found or not executable at expected path."
-            echo "==> Full directory listing of toolchain/clang/:"
+          if [ ! -f "$CLANG_BIN" ]; then
+            echo "ERROR: clang binary not found at expected path!"
+            echo "==> Directory listing of toolchain/clang/:"
             ls -la $GITHUB_WORKSPACE/toolchain/clang/ || true
-            echo "==> Listing clang-r383902b1/ if it exists:"
-            ls -la $GITHUB_WORKSPACE/toolchain/clang/clang-r383902b1/ || true
-            echo "==> Listing clang-r383902b1/bin/ if it exists:"
-            ls -la $GITHUB_WORKSPACE/toolchain/clang/clang-r383902b1/bin/ || true
+            echo "==> Searching for any clang binary:"
+            find $GITHUB_WORKSPACE/toolchain/clang -maxdepth 5 -name "clang" -type f 2>/dev/null | head -10
             exit 1
-          }
+          fi
+
+          file "$CLANG_BIN"
+          "$CLANG_BIN" --version
+          echo "==> Clang toolchain verified successfully!"
 
       - name: Clone GCC aarch64 cross-compiler from LineageOS mirror
         run: |
