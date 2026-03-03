@@ -65,18 +65,20 @@ jobs:
       #    Matches stock: "clang version 11.0.2"
       #    Build ID: 6877366 based on r383902b1
       #
-      #    Uses GitHub mirrors (git clone --depth=1)
-      #    instead of AOSP +archive URLs which are
-      #    unreliable and return HTML 404 pages.
+      #    Cloned directly from official AOSP repo on
+      #    the android11-release branch where this
+      #    revision is permanently preserved.
       # ─────────────────────────────────────────────
-      - name: Clone AOSP Clang 11 (r383902b1) from GitHub mirror
+      - name: Clone AOSP Clang 11 (r383902b1) from official android11-release
         run: |
-          echo "==> Cloning AOSP Clang 11.0.2 (r383902b1) — exact stock toolchain match..."
-          git clone --depth=1 \
-            https://github.com/anrui2032/android_prebuilts_clang_host_linux-x86_clang-r383902b1.git \
+          echo "==> Cloning official AOSP Clang 11.0.2 (r383902b1) from android11-release branch..."
+          rm -rf $GITHUB_WORKSPACE/toolchain/clang
+          git clone \
+            https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 \
+            -b android11-release --depth=1 \
             $GITHUB_WORKSPACE/toolchain/clang
           # Verify the clang binary
-          $GITHUB_WORKSPACE/toolchain/clang/bin/clang --version
+          $GITHUB_WORKSPACE/toolchain/clang/clang-r383902b1/bin/clang --version
 
       - name: Clone GCC aarch64 cross-compiler from LineageOS mirror
         run: |
@@ -108,7 +110,7 @@ jobs:
       - name: Set up environment & build
         run: |
           # ── Toolchain paths ──
-          CLANG_DIR="$GITHUB_WORKSPACE/toolchain/clang"
+          CLANG_DIR="$GITHUB_WORKSPACE/toolchain/clang/clang-r383902b1"
           GCC64_DIR="$GITHUB_WORKSPACE/toolchain/gcc-aarch64"
           GCC32_DIR="$GITHUB_WORKSPACE/toolchain/gcc-arm32"
 
