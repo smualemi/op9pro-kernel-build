@@ -170,10 +170,9 @@ jobs:
 
           export PATH="$CLANG_DIR/bin:$GCC64_DIR/bin:$GCC32_DIR/bin:$PATH"
 
-          # Use disk-backed TMPDIR to prevent tmpfs exhaustion during Clang LLVM bitcode generation
+          # Use disk-backed TMPDIR
           mkdir -p $GITHUB_WORKSPACE/build_tmp
           export TMPDIR=$GITHUB_WORKSPACE/build_tmp
-          echo "==> Set TMPDIR=$TMPDIR"
 
           export ARCH=arm64
           export SUBARCH=arm64
@@ -200,16 +199,28 @@ jobs:
           )
 
           cd $GITHUB_WORKSPACE/kernel_source
-
           make "${MAKE_ARGS[@]}" ${{ env.DEFCONFIG }}
 
+          echo "==> Overriding CONFIGs to prevent OOM killer on GH Runners..."
           scripts/config --file out/.config --disable LOCALVERSION_AUTO
           scripts/config --file out/.config --set-str LOCALVERSION "-qgki"
 
+          # Explicitly Disable LTO to prevent massive RAM exhaustion during compile/link
+          scripts/config --file out/.config --disable LTO_CLANG
+          scripts/config --file out/.config --disable LTO_CLANG_THIN
+          scripts/config --file out/.config --disable LTO_CLANG_FULL
+          scripts/config --file out/.config --enable LTO_NONE
+          
+          # Also disable KASAN/UBSAN usually active on debugging configs
+          scripts/config --file out/.config --disable KASAN
+          scripts/config --file out/.config --disable UBSAN
+
           make "${MAKE_ARGS[@]}" olddefconfig
 
+          echo "==> Verifying LTO is disabled:"
+          grep -E "CONFIG_LTO=" out/.config || true
+
           echo "==> Building kernel..."
-          # Use -j2 explicitly to prevent OOM killer on 7GB GitHub runner
           make "${MAKE_ARGS[@]}" -j2 ${{ env.KERNEL_IMAGE }}
 
       # ─────────────────────────────────────────────
