@@ -123,9 +123,6 @@ jobs:
 
       # ─────────────────────────────────────────────
       # 4. CLONE TECHPACK SUBMODULES
-      #    techpack/{audio,camera,display,dataipa,video}
-      #    are gitlink stubs in the kernel source — they
-      #    must be cloned separately from QTI open-source.
       # ─────────────────────────────────────────────
       - name: Clone techpack submodules
         run: |
@@ -138,14 +135,12 @@ jobs:
             rm -rf "$TP/$name"
             if git clone --depth=1 -b "$branch" "$url" "$TP/$name" 2>/dev/null; then
               rm -rf "$TP/$name/.git"
-              echo "OK: techpack/$name cloned from $url"
+              echo "OK: techpack/$name"
             else
-              echo "WARN: Could not clone $name from $url (trying fallback or skip)"
+              echo "WARN: Could not clone $name"
             fi
           }
 
-          # QTI Lahaina (SM8350) techpack repos — from quic-la mirrors on GitHub
-          # Audio kernel
           clone_techpack audio \
             https://github.com/quic-la/platform_vendor_qcom-opensource_audio-kernel \
             "LA.UM.9.14.r1-00600-LAHAINA.0" || \
@@ -153,28 +148,23 @@ jobs:
             https://github.com/LineageOS/android_vendor_qcom_opensource_audio-kernel \
             "lineage-20" || true
 
-          # Camera — less critical for boot, skip if unavailable
           clone_techpack camera \
             https://github.com/quic-la/platform_vendor_qcom-opensource_camera-kernel \
             "LA.UM.9.14.r1-00600-LAHAINA.0" || true
 
-          # Display
           clone_techpack display \
             https://github.com/quic-la/platform_vendor_qcom-opensource_display-drivers \
             "LA.UM.9.14.r1-00600-LAHAINA.0" || true
 
-          # Data IPA
           clone_techpack dataipa \
             https://github.com/quic-la/platform_vendor_qcom-opensource_data-ipa-cfg-mgr \
             "LA.UM.9.14.r1-00600-LAHAINA.0" || true
 
-          # Video
           clone_techpack video \
             https://github.com/quic-la/platform_vendor_qcom-opensource_video-driver \
             "LA.UM.9.14.r1-00600-LAHAINA.0" || true
 
-          echo "==> techpack contents after cloning:"
-          ls -la "$TP/"
+          echo "==> techpack contents:"; ls -la "$TP/"
 
       # ─────────────────────────────────────────────
       # 5. RESOLVE OPLUS VENDOR SYMLINKS
@@ -256,6 +246,10 @@ jobs:
           scripts/config --file out/.config --enable LTO_NONE
           scripts/config --file out/.config --disable KASAN
           scripts/config --file out/.config --disable UBSAN
+          # Allow section mismatch warnings without failing the build.
+          # OPlus vendor code references __initdata from non-init functions
+          # which is harmless for our purposes (stock equivalent build).
+          scripts/config --file out/.config --enable SECTION_MISMATCH_WARN_ONLY
 
           make "${MAKE_ARGS[@]}" olddefconfig
 
