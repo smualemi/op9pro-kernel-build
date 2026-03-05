@@ -122,48 +122,32 @@ jobs:
           rm -rf $GITHUB_WORKSPACE/toolchain/gcc-arm32/.git
 
       # ─────────────────────────────────────────────
-      # 4. CLONE TECHPACK SUBMODULES
+      # 4. STUB TECHPACK SUBDIRECTORIES
+      #
+      # techpack/{audio,camera,display,dataipa,video} are gitlink
+      # stubs (size=0, no .gitmodules). They need to have a valid
+      # Makefile so the kernel build system doesn't abort with
+      # "No such file or directory", but we do NOT want to clone
+      # the quic-la repos which have API mismatches with OPlus and
+      # cause cascading undefined symbol errors at link time.
+      #
+      # The 4 OPlus display notifier symbols are already stubbed in
+      # drivers/soc/qcom/oplus_display_stubs.c in the kernel source.
       # ─────────────────────────────────────────────
-      - name: Clone techpack submodules
+      - name: Create techpack stub Makefiles
         run: |
-          KERNEL_SRC="$GITHUB_WORKSPACE/kernel_source"
-          TP="$KERNEL_SRC/techpack"
-
-          clone_techpack() {
-            local name="$1"; local url="$2"; local branch="$3"
-            echo "==> Cloning techpack/$name ..."
-            rm -rf "$TP/$name"
-            if git clone --depth=1 -b "$branch" "$url" "$TP/$name" 2>/dev/null; then
-              rm -rf "$TP/$name/.git"
-              echo "OK: techpack/$name"
+          TP="$GITHUB_WORKSPACE/kernel_source/techpack"
+          echo "==> Creating empty stub Makefiles for techpack subdirs..."
+          for subdir in audio camera display dataipa video; do
+            if [ ! -f "$TP/$subdir/Makefile" ]; then
+              mkdir -p "$TP/$subdir"
+              printf '# SPDX-License-Identifier: GPL-2.0-only\n# Stub: %s not available in standalone CI build\n' \
+                "techpack/$subdir" > "$TP/$subdir/Makefile"
+              echo "  Created stub: techpack/$subdir/Makefile"
             else
-              echo "WARN: Could not clone $name"
+              echo "  Already exists: techpack/$subdir/Makefile"
             fi
-          }
-
-          clone_techpack audio \
-            https://github.com/quic-la/platform_vendor_qcom-opensource_audio-kernel \
-            "LA.UM.9.14.r1-00600-LAHAINA.0" || \
-          clone_techpack audio \
-            https://github.com/LineageOS/android_vendor_qcom_opensource_audio-kernel \
-            "lineage-20" || true
-
-          clone_techpack camera \
-            https://github.com/quic-la/platform_vendor_qcom-opensource_camera-kernel \
-            "LA.UM.9.14.r1-00600-LAHAINA.0" || true
-
-          clone_techpack display \
-            https://github.com/quic-la/platform_vendor_qcom-opensource_display-drivers \
-            "LA.UM.9.14.r1-00600-LAHAINA.0" || true
-
-          clone_techpack dataipa \
-            https://github.com/quic-la/platform_vendor_qcom-opensource_data-ipa-cfg-mgr \
-            "LA.UM.9.14.r1-00600-LAHAINA.0" || true
-
-          clone_techpack video \
-            https://github.com/quic-la/platform_vendor_qcom-opensource_video-driver \
-            "LA.UM.9.14.r1-00600-LAHAINA.0" || true
-
+          done
           echo "==> techpack contents:"; ls -la "$TP/"
 
       # ─────────────────────────────────────────────
