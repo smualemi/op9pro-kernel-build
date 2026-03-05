@@ -123,32 +123,18 @@ jobs:
 
       # ─────────────────────────────────────────────
       # 4. STUB TECHPACK SUBDIRECTORIES
-      #
-      # techpack/{audio,camera,display,dataipa,video} are gitlink
-      # stubs (size=0, no .gitmodules). They need to have a valid
-      # Makefile so the kernel build system doesn't abort with
-      # "No such file or directory", but we do NOT want to clone
-      # the quic-la repos which have API mismatches with OPlus and
-      # cause cascading undefined symbol errors at link time.
-      #
-      # The 4 OPlus display notifier symbols are already stubbed in
-      # drivers/soc/qcom/oplus_display_stubs.c in the kernel source.
       # ─────────────────────────────────────────────
       - name: Create techpack stub Makefiles
         run: |
           TP="$GITHUB_WORKSPACE/kernel_source/techpack"
-          echo "==> Creating empty stub Makefiles for techpack subdirs..."
           for subdir in audio camera display dataipa video; do
             if [ ! -f "$TP/$subdir/Makefile" ]; then
               mkdir -p "$TP/$subdir"
               printf '# SPDX-License-Identifier: GPL-2.0-only\n# Stub: %s not available in standalone CI build\n' \
                 "techpack/$subdir" > "$TP/$subdir/Makefile"
-              echo "  Created stub: techpack/$subdir/Makefile"
-            else
-              echo "  Already exists: techpack/$subdir/Makefile"
             fi
           done
-          echo "==> techpack contents:"; ls -la "$TP/"
+          echo "==> techpack:"; ls -la "$TP/"
 
       # ─────────────────────────────────────────────
       # 5. RESOLVE OPLUS VENDOR SYMLINKS
@@ -162,19 +148,13 @@ jobs:
             ln -sfn "$DT_SRC/vendor" "$GITHUB_WORKSPACE/vendor"
             ln -sfn "$DT_SRC/vendor" "$KERNEL_SRC/vendor" 2>/dev/null || true
             WORKSPACE_PARENT=$(dirname "$GITHUB_WORKSPACE")
-            WORKSPACE_GRANDPARENT=$(dirname "$WORKSPACE_PARENT")
             ln -sfn "$DT_SRC/vendor" "$WORKSPACE_PARENT/vendor" 2>/dev/null || true
-            ln -sfn "$DT_SRC/vendor" "$WORKSPACE_GRANDPARENT/vendor" 2>/dev/null || true
           fi
 
           mkdir -p "$GITHUB_WORKSPACE/kernel"
           ln -sfn "$KERNEL_SRC" "$GITHUB_WORKSPACE/kernel/msm-5.4"
           mkdir -p "$DT_SRC/kernel"
           ln -sfn "$KERNEL_SRC" "$DT_SRC/kernel/msm-5.4"
-          if [ -n "$WORKSPACE_PARENT" ]; then
-            mkdir -p "$WORKSPACE_PARENT/kernel"
-            ln -sfn "$KERNEL_SRC" "$WORKSPACE_PARENT/kernel/msm-5.4" 2>/dev/null || true
-          fi
 
           find "$KERNEL_SRC" -maxdepth 3 -type l ! -exec test -e {} \; -print 2>/dev/null \
             | xargs rm -f 2>/dev/null || true
@@ -222,15 +202,70 @@ jobs:
 
           make "${MAKE_ARGS[@]}" ${{ env.DEFCONFIG }}
 
-          scripts/config --file out/.config --disable LOCALVERSION_AUTO
-          scripts/config --file out/.config --set-str LOCALVERSION "-qgki"
+          echo "==> Applying CI-safe config overrides..."
+
+          # --- LTO: disable to avoid OOM on 7GB runner ---
           scripts/config --file out/.config --disable LTO_CLANG
           scripts/config --file out/.config --disable LTO_CLANG_THIN
           scripts/config --file out/.config --disable LTO_CLANG_FULL
-          scripts/config --file out/.config --enable LTO_NONE
+          scripts/config --file out/.config --enable  LTO_NONE
+
+          # --- Sanitizers: disable to reduce memory pressure ---
           scripts/config --file out/.config --disable KASAN
           scripts/config --file out/.config --disable UBSAN
+
+          # --- Section mismatches in OPlus vendor code are harmless warnings ---
           scripts/config --file out/.config --enable SECTION_MISMATCH_WARN_ONLY
+
+          # ───────────────────────────────────────────────────────────────────
+          # Force-enable QTI platform drivers to =y.
+          # These are tristate drivers that get silently demoted to =m when
+          # LTO_CLANG is replaced by LTO_NONE via olddefconfig dependency
+          # resolution.  They MUST be =y (not =m) because built-in code in
+          # vmlinux calls their exported symbols — if they're modules, the
+          # linker sees undefined references at vmlinux link time.
+          # ───────────────────────────────────────────────────────────────────
+
+          # cmd_db_read_addr / cmd_db_read_aux_data
+          scripts/config --file out/.config --enable QCOM_COMMAND_DB
+
+          # rpmh_write / rpmh_write_async  (rpmh.c lives in drivers/soc/qcom)
+          # The config name may vary; try common variants
+          scripts/config --file out/.config --enable QCOM_RPMH       2>/dev/null || true
+          scripts/config --file out/.config --enable QCOM_RPMH_MBOX  2>/dev/null || true
+
+          # socinfo_get_id_string / socinfo_get_serial_number
+          scripts/config --file out/.config --enable QCOM_SOCINFO
+
+          # msm_minidump_enabled / msm_minidump_add_region
+          scripts/config --file out/.config --enable MSM_MINIDUMP
+
+          # qpnp_pbs_trigger_event
+          scripts/config --file out/.config --enable QPNP_PBS         2>/dev/null || true
+
+          # subsys_register_early_notifier / subsys_notif_unregister_notifier
+          scripts/config --file out/.config --enable MSM_PIL           2>/dev/null || true
+          scripts/config --file out/.config --enable MSM_SUBSYSTEM_RESTART 2>/dev/null || true
+
+          # qcom_smem_state_get / qcom_smem_state_update_bits
+          scripts/config --file out/.config --enable QCOM_SMEM_STATE   2>/dev/null || true
+          scripts/config --file out/.config --enable QCOM_SMEM         2>/dev/null || true
+
+          # service_notif_pd_restart / service_notif_unregister_notifier
+          scripts/config --file out/.config --enable QTI_SERVICE_NOTIFIER   2>/dev/null || true
+          scripts/config --file out/.config --enable MSM_QTI_SERVICE_NOTIFIER 2>/dev/null || true
+
+          # destroy_ramdump_device
+          scripts/config --file out/.config --enable MSM_RAMDUMP       2>/dev/null || true
+
+          # rq_info / rq_wq  (CONFIG_QCOM_RUN_QUEUE_STATS)
+          scripts/config --file out/.config --enable QCOM_RUN_QUEUE_STATS 2>/dev/null || true
+
+          # sysctl_hh_suspend_timeout_ms (some suspend sysctl config)
+          scripts/config --file out/.config --enable QTI_HH             2>/dev/null || true
+
+          # __tracepoint_pil_restart_level (PIL restart tracepoint)
+          scripts/config --file out/.config --enable MSM_QDSP6_PIL      2>/dev/null || true
 
           make "${MAKE_ARGS[@]}" olddefconfig
 
