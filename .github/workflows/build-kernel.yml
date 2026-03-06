@@ -196,7 +196,6 @@ jobs:
             LLVM=1
             LLVM_IAS=1
             O=out
-            # Show ALL linker errors (not capped at default limit)
             LDFLAGS_vmlinux=--error-limit=0
           )
 
@@ -204,7 +203,6 @@ jobs:
 
           make "${MAKE_ARGS[@]}" ${{ env.DEFCONFIG }}
 
-          # Apply CI-specific config overrides
           scripts/config --file out/.config --disable LTO_CLANG
           scripts/config --file out/.config --disable LTO_CLANG_THIN
           scripts/config --file out/.config --disable LTO_CLANG_FULL
