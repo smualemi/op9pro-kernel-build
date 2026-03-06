@@ -196,76 +196,21 @@ jobs:
             LLVM=1
             LLVM_IAS=1
             O=out
+            # Show ALL linker errors (not capped at 15) so we can see everything
+            LDFLAGS_vmlinux=--error-limit=0
           )
 
           cd $GITHUB_WORKSPACE/kernel_source
 
           make "${MAKE_ARGS[@]}" ${{ env.DEFCONFIG }}
 
-          echo "==> Applying CI-safe config overrides..."
-
-          # --- LTO: disable to avoid OOM on 7GB runner ---
           scripts/config --file out/.config --disable LTO_CLANG
           scripts/config --file out/.config --disable LTO_CLANG_THIN
           scripts/config --file out/.config --disable LTO_CLANG_FULL
           scripts/config --file out/.config --enable  LTO_NONE
-
-          # --- Sanitizers: disable to reduce memory pressure ---
           scripts/config --file out/.config --disable KASAN
           scripts/config --file out/.config --disable UBSAN
-
-          # --- Section mismatches in OPlus vendor code are harmless warnings ---
           scripts/config --file out/.config --enable SECTION_MISMATCH_WARN_ONLY
-
-          # ───────────────────────────────────────────────────────────────────
-          # Force-enable QTI platform drivers to =y.
-          # These are tristate drivers that get silently demoted to =m when
-          # LTO_CLANG is replaced by LTO_NONE via olddefconfig dependency
-          # resolution.  They MUST be =y (not =m) because built-in code in
-          # vmlinux calls their exported symbols — if they're modules, the
-          # linker sees undefined references at vmlinux link time.
-          # ───────────────────────────────────────────────────────────────────
-
-          # cmd_db_read_addr / cmd_db_read_aux_data
-          scripts/config --file out/.config --enable QCOM_COMMAND_DB
-
-          # rpmh_write / rpmh_write_async  (rpmh.c lives in drivers/soc/qcom)
-          # The config name may vary; try common variants
-          scripts/config --file out/.config --enable QCOM_RPMH       2>/dev/null || true
-          scripts/config --file out/.config --enable QCOM_RPMH_MBOX  2>/dev/null || true
-
-          # socinfo_get_id_string / socinfo_get_serial_number
-          scripts/config --file out/.config --enable QCOM_SOCINFO
-
-          # msm_minidump_enabled / msm_minidump_add_region
-          scripts/config --file out/.config --enable MSM_MINIDUMP
-
-          # qpnp_pbs_trigger_event
-          scripts/config --file out/.config --enable QPNP_PBS         2>/dev/null || true
-
-          # subsys_register_early_notifier / subsys_notif_unregister_notifier
-          scripts/config --file out/.config --enable MSM_PIL           2>/dev/null || true
-          scripts/config --file out/.config --enable MSM_SUBSYSTEM_RESTART 2>/dev/null || true
-
-          # qcom_smem_state_get / qcom_smem_state_update_bits
-          scripts/config --file out/.config --enable QCOM_SMEM_STATE   2>/dev/null || true
-          scripts/config --file out/.config --enable QCOM_SMEM         2>/dev/null || true
-
-          # service_notif_pd_restart / service_notif_unregister_notifier
-          scripts/config --file out/.config --enable QTI_SERVICE_NOTIFIER   2>/dev/null || true
-          scripts/config --file out/.config --enable MSM_QTI_SERVICE_NOTIFIER 2>/dev/null || true
-
-          # destroy_ramdump_device
-          scripts/config --file out/.config --enable MSM_RAMDUMP       2>/dev/null || true
-
-          # rq_info / rq_wq  (CONFIG_QCOM_RUN_QUEUE_STATS)
-          scripts/config --file out/.config --enable QCOM_RUN_QUEUE_STATS 2>/dev/null || true
-
-          # sysctl_hh_suspend_timeout_ms (some suspend sysctl config)
-          scripts/config --file out/.config --enable QTI_HH             2>/dev/null || true
-
-          # __tracepoint_pil_restart_level (PIL restart tracepoint)
-          scripts/config --file out/.config --enable MSM_QDSP6_PIL      2>/dev/null || true
 
           make "${MAKE_ARGS[@]}" olddefconfig
 
