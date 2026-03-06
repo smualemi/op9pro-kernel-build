@@ -196,14 +196,27 @@ jobs:
             LLVM=1
             LLVM_IAS=1
             O=out
-            # Show ALL linker errors (not capped at 15) so we can see everything
-            LDFLAGS_vmlinux=--error-limit=0
           )
 
           cd $GITHUB_WORKSPACE/kernel_source
 
           make "${MAKE_ARGS[@]}" ${{ env.DEFCONFIG }}
 
+          # ─────────────────────────────────────────
+          # Key insight: This kernel is designed for a full AOSP vendor
+          # tree where many QTI platform drivers are compiled as modules
+          # (=m). In a standalone build, built-in code calls those module-
+          # exported symbols => 40+ undefined symbol linker errors.
+          #
+          # THE FIX: convert every =m driver to =y (built-in) so all
+          # symbols are compiled into vmlinux and the linker can find them.
+          # olddefconfig then resolves any 'depends on MODULES' that can't
+          # be =y and safely sets them back to n.
+          # ─────────────────────────────────────────
+          echo "==> Forcing all =m modules to =y (standalone build fix)..."
+          sed -i 's/=m$/=y/' out/.config
+
+          # CI-specific overrides on top of the above
           scripts/config --file out/.config --disable LTO_CLANG
           scripts/config --file out/.config --disable LTO_CLANG_THIN
           scripts/config --file out/.config --disable LTO_CLANG_FULL
@@ -213,6 +226,9 @@ jobs:
           scripts/config --file out/.config --enable SECTION_MISMATCH_WARN_ONLY
 
           make "${MAKE_ARGS[@]}" olddefconfig
+
+          echo "==> Config summary (=m remaining after sed):"; \
+            grep '=m$' out/.config | wc -l || true
 
           echo "==> Memory before compilation:"; free -h
           make "${MAKE_ARGS[@]}" -j2 ${{ env.KERNEL_IMAGE }}
