@@ -44,6 +44,14 @@ jobs:
           path: kernel_modules_devicetree
           fetch-depth: 1
 
+      - name: Maximize build space
+        run: |
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/share/powershell
+          sudo rm -rf /usr/local/share/chromium
+
       # ─────────────────────────────────────────────
       # 2. INSTALL HOST DEPENDENCIES
       # ─────────────────────────────────────────────
@@ -176,6 +184,7 @@ jobs:
           find "$DT_SRC/vendor/oplus/kernel" -maxdepth 2 -type d | while read dir; do
             [ "$dir" == "$DT_SRC/vendor/oplus/kernel" ] && continue
             [ "$(basename "$dir")" == "include" ] && continue
+            [ "$(basename "$dir")" == "system" ] && continue
             
             if [ -d "$dir/kernel" ] || [ -d "$dir/fs" ] || [ -d "$dir/mm" ]; then
               echo "      + Mirroring contents of $(basename "$dir") to root"
@@ -186,6 +195,9 @@ jobs:
             fi
           done
           
+          echo "==> Cleaning up device tree to reclaim space..."
+          rm -rf "$DT_SRC"
+
           echo "==> Mass Overlay complete."
 
       - name: Normalize Kconfig line endings
