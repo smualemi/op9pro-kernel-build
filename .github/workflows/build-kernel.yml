@@ -138,9 +138,19 @@ jobs:
                 cp "$DT_SRC/$vendor_rel" "$link"
                 echo "    ==> Copied successfully."
               else
-                echo "    WARNING: Target not found in device tree: $DT_SRC/$vendor_rel"
-                echo "    ==> Removing broken symlink to prevent build errors."
-                rm -f "$link"
+                # Oplus often reorganizes directories into subfolders like oplus_performance
+                target_name=$(basename "$target")
+                found_path=$(find "$DT_SRC" -name "$target_name" | head -n 1)
+                if [ -n "$found_path" ]; then
+                  echo "    ==> Found by name in device tree: $found_path"
+                  rm -f "$link"
+                  cp -r "$found_path" "$link"
+                  echo "    ==> Copied successfully."
+                else
+                  echo "    WARNING: Target not found in device tree: $DT_SRC/$vendor_rel"
+                  echo "    ==> Removing broken symlink to prevent build errors."
+                  rm -f "$link"
+                fi
               fi
             done
           fi
