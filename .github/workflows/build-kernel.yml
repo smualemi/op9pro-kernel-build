@@ -78,7 +78,7 @@ jobs:
             -b android11-release --depth=1 \
             $GITHUB_WORKSPACE/toolchain/clang
           # Verify the clang binary
-          $GITHUB_WORKSPACE/toolchain/clang/clang-r383902b1/bin/clang --version
+          $GITHUB_WORKSPACE/toolchain/clang/clang-r383902b1/clang-r383902b1/bin/clang --version
 
       - name: Clone GCC aarch64 cross-compiler from LineageOS mirror
         run: |
@@ -163,7 +163,7 @@ jobs:
       - name: Set up environment & build
         run: |
           # ── Toolchain paths ──
-          CLANG_DIR="$GITHUB_WORKSPACE/toolchain/clang/clang-r383902b1"
+          CLANG_DIR="$GITHUB_WORKSPACE/toolchain/clang/clang-r383902b1/clang-r383902b1"
           GCC64_DIR="$GITHUB_WORKSPACE/toolchain/gcc-aarch64"
           GCC32_DIR="$GITHUB_WORKSPACE/toolchain/gcc-arm32"
 
