@@ -160,8 +160,18 @@ jobs:
 
           # Create Proxy Config in aosp_root
           cat << 'EOF' > build.config.custom
+          function append_cmd() {
+              if [ ! -z "${!1}" ]; then
+                  eval "$1=\"${!1} && \$2\""
+              else
+                  eval "$1=\"\$2\""
+              fi
+          }
+          export -f append_cmd
+          
           # Source from the true location
           . ${ROOT_DIR}/kernel/build.config.msm.lahaina
+          
           DEFCONFIG=ossi_oos14_defconfig
           PRE_DEFCONFIG_CMDS=""
           LOCALVERSION="-qgki"
