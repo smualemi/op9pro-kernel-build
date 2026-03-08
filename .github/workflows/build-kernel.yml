@@ -144,6 +144,16 @@ jobs:
           ln -sfn $GITHUB_WORKSPACE/kernel_source/build.config.* $GITHUB_WORKSPACE/aosp_root/ 2>/dev/null || true
 
       # ─────────────────────────────────────────────
+      # 6.5 MASS OVERLAY OPLUS & TECHPACK
+      # ─────────────────────────────────────────────
+      - name: Mass Overlay Oplus & Techpack Sources
+        run: |
+          echo "==> Restoring Mass Overlay of Oplus & Techpack sources..."
+          cp -rn $GITHUB_WORKSPACE/kernel_source/vendor/oplus/kernel/* $GITHUB_WORKSPACE/kernel_source/ || true
+          mkdir -p $GITHUB_WORKSPACE/kernel_source/techpack
+          cp -rn $GITHUB_WORKSPACE/kernel_source/kernel/msm-5.4/techpack/* $GITHUB_WORKSPACE/kernel_source/techpack/ || true
+
+      # ─────────────────────────────────────────────
       # 7. BUILD WITH WRAPPER SCRIPT
       # ─────────────────────────────────────────────
       - name: Generate Proxy Config & Build
