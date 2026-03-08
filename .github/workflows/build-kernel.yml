@@ -157,12 +157,12 @@ jobs:
           done
           echo "==> Vendor symlink resolution complete."
 
-      - name: Mass Overlay Oplus C Source Directories
+      - name: Clean Mass Overlay Oplus & Techpack Directories
         run: |
           KERNEL_SRC="$GITHUB_WORKSPACE/kernel_source"
           DT_SRC="$GITHUB_WORKSPACE/kernel_modules_devicetree"
-          echo "==> Performing Mass CI Overlay..."
-          
+          echo "==> Performing Clean CI Overlay..."
+
           # 1. Populating include/soc/oplus with headers from system/include
           echo "  --> Populating include/soc/oplus..."
           mkdir -p "$KERNEL_SRC/include/soc/oplus"
@@ -179,22 +179,21 @@ jobs:
           ln -snf ../../include "$KERNEL_SRC/kernel/msm-5.4/include"
           ln -snf ../../techpack "$KERNEL_SRC/kernel/msm-5.4/techpack"
 
-          # 3. Aggressive Overlay of all Oplus categories
-          echo "  --> Overlaying Oplus modification roots..."
-          find "$DT_SRC/vendor/oplus/kernel" -maxdepth 2 -type d | while read dir; do
-            [ "$dir" == "$DT_SRC/vendor/oplus/kernel" ] && continue
-            [ "$(basename "$dir")" == "include" ] && continue
-            [ "$(basename "$dir")" == "system" ] && continue
-            
-            if [ -d "$dir/kernel" ] || [ -d "$dir/fs" ] || [ -d "$dir/mm" ]; then
-              echo "      + Mirroring contents of $(basename "$dir") to root"
-              cp -rn "$dir/"* "$KERNEL_SRC/" || true
-            else
-              echo "      + Copying folder $(basename "$dir") to root"
-              cp -rn "$dir" "$KERNEL_SRC/" || true
-            fi
-          done
+          # 3. Clean Overlay of Oplus features
+          echo "  --> Clean Overlaying Oplus modification roots..."
+          cp -rn "$DT_SRC/vendor/oplus/kernel/"* "$KERNEL_SRC/" || true
+          cp -rn "$DT_SRC/vendor/oplus/kernel_5.4/"* "$KERNEL_SRC/" || true
+
+          # 4. Overlay Qualcomm techpack/audio and others
+          echo "  --> Overlaying Qualcomm techpack..."
+          mkdir -p "$KERNEL_SRC/techpack"
+          cp -rn "$DT_SRC/kernel/msm-5.4/techpack/"* "$KERNEL_SRC/techpack/" || true
           
+          # 5. Overlay Qualcomm opensource
+          echo "  --> Overlaying Qualcomm opensource..."
+          mkdir -p "$KERNEL_SRC/vendor/qcom/opensource"
+          cp -rn "$DT_SRC/vendor/qcom/opensource/"* "$KERNEL_SRC/vendor/qcom/opensource/" || true
+
           echo "==> Cleaning up device tree to reclaim space..."
           rm -rf "$DT_SRC"
 
