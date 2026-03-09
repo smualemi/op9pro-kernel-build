@@ -106,16 +106,11 @@ jobs:
       # ─────────────────────────────────────────────
       - name: Construct Native AOSP Workspace Structure
         run: |
-          echo "==> Constructing Native AOSP Workspace Structure..."
+          echo "==> Syncing native AOSP structure from Device Tree (covers device, vendor, techpack)..."
+          rsync -a $GITHUB_WORKSPACE/kernel_modules_devicetree/ $GITHUB_WORKSPACE/
           
-          # Move vendor and device from devicetree directly to workspace root
-          # The symlinks inside arch/arm64/kernel expect 5 ../ exactly relative to kernel/msm-5.4/ !
-          mv $GITHUB_WORKSPACE/kernel_modules_devicetree/vendor $GITHUB_WORKSPACE/
-          mv $GITHUB_WORKSPACE/kernel_modules_devicetree/device $GITHUB_WORKSPACE/
-          
-          # Move techpack to the kernel tree properly
-          mkdir -p $GITHUB_WORKSPACE/kernel/msm-5.4/techpack
-          rsync -a $GITHUB_WORKSPACE/kernel_modules_devicetree/kernel/msm-5.4/techpack/ $GITHUB_WORKSPACE/kernel/msm-5.4/techpack/
+          echo "==> Merging out-of-tree Oplus Kernel Modifications..."
+          rsync -a $GITHUB_WORKSPACE/kernel_modules_devicetree/vendor/oplus/kernel/ $GITHUB_WORKSPACE/kernel/msm-5.4/
           
           # Clean up devicetree repo to save space
           rm -rf $GITHUB_WORKSPACE/kernel_modules_devicetree
@@ -187,7 +182,7 @@ jobs:
           echo "============================================"
           echo "  Executing Official QCOM Build Wrapper"
           echo "============================================"
-          bash device/qcom/kernelscripts/build.sh LLVM=1 LLVM_IAS=1 O=out
+          bash device/qcom/kernelscripts/build.sh LLVM=1 LLVM_IAS=1
 
       # ─────────────────────────────────────────────
       # 7. ANYKERNEL3 PACKAGING
@@ -209,17 +204,7 @@ jobs:
 
           # Find the compiled kernel image dynamically
           echo "==> Searching for compiled kernel image..."
-          KERNEL_BIN=$(find $GITHUB_WORKSPACE/out/msm-5.4-lahaina-qgki-debug/dist -type f -name "${{ env.KERNEL_IMAGE }}" | head -n 1)
-
-          if [ -z "$KERNEL_BIN" ]; then
-            echo "Searching all of out/ as fallback..."
-            KERNEL_BIN=$(find $GITHUB_WORKSPACE/out -type f -name "${{ env.KERNEL_IMAGE }}" | head -n 1)
-          fi
-
-          if [ -z "$KERNEL_BIN" ]; then
-            echo "Searching kernel out/ just in case..."
-            KERNEL_BIN=$(find $GITHUB_WORKSPACE/kernel/msm-5.4 -type f -name "${{ env.KERNEL_IMAGE }}" | head -n 1)
-          fi
+          KERNEL_BIN=$(find $GITHUB_WORKSPACE/out/ -name "Image" -type f | head -n 1)
 
           if [ -z "$KERNEL_BIN" ]; then
             echo "ERROR: Kernel image not found in out/ directory!"
