@@ -33,7 +33,7 @@ jobs:
         with:
           repository: ${{ env.KERNEL_REPO }}
           ref: ${{ env.KERNEL_BRANCH }}
-          path: kernel
+          path: kernel/msm-5.4
           fetch-depth: 1
 
       - name: Checkout device tree & modules
@@ -98,8 +98,8 @@ jobs:
 
       - name: Clone AOSP Build Scripts
         run: |
-          echo "==> Cloning AOSP build scripts (append_cmd provider)..."
-          git clone https://android.googlesource.com/kernel/build --depth=1 $GITHUB_WORKSPACE/kernel/build
+          echo "==> Cloning AOSP build scripts (build.sh provider)..."
+          git clone https://android.googlesource.com/kernel/build --depth=1 $GITHUB_WORKSPACE/build
 
       # ─────────────────────────────────────────────
       # 4. EMULATE AOSP DIRECTORY STRUCTURE
@@ -109,20 +109,20 @@ jobs:
           echo "==> Constructing Native AOSP Workspace Structure..."
           
           # Move vendor and device from devicetree directly to workspace root
-          # This satisfies the 5-layer deep symlinks inside the kernel! e.g ../../../../../vendor/oplus/kernel/...
+          # The symlinks inside arch/arm64/kernel expect 5 ../ exactly relative to kernel/msm-5.4/ !
           mv $GITHUB_WORKSPACE/kernel_modules_devicetree/vendor $GITHUB_WORKSPACE/
           mv $GITHUB_WORKSPACE/kernel_modules_devicetree/device $GITHUB_WORKSPACE/
           
           # Move techpack to the kernel tree properly
-          mkdir -p $GITHUB_WORKSPACE/kernel/techpack
-          rsync -a $GITHUB_WORKSPACE/kernel_modules_devicetree/kernel/msm-5.4/techpack/ $GITHUB_WORKSPACE/kernel/techpack/
+          mkdir -p $GITHUB_WORKSPACE/kernel/msm-5.4/techpack
+          rsync -a $GITHUB_WORKSPACE/kernel_modules_devicetree/kernel/msm-5.4/techpack/ $GITHUB_WORKSPACE/kernel/msm-5.4/techpack/
           
           # Clean up devicetree repo to save space
           rm -rf $GITHUB_WORKSPACE/kernel_modules_devicetree
 
           # Provide the common config that early wrappers explicitly expect
           ln -sfn $GITHUB_WORKSPACE/device/qcom/kernelscripts/upstream/build.config.common \
-            $GITHUB_WORKSPACE/kernel/build.config.common
+            $GITHUB_WORKSPACE/kernel/msm-5.4/build.config.common
 
       # ─────────────────────────────────────────────
       # 5. PREPARE DEFCONFIG
@@ -130,7 +130,7 @@ jobs:
       - name: Place stock defconfig
         run: |
           cp $GITHUB_WORKSPACE/defconfig/${{ env.DEFCONFIG }} \
-             $GITHUB_WORKSPACE/kernel/arch/arm64/configs/${{ env.DEFCONFIG }}
+             $GITHUB_WORKSPACE/kernel/msm-5.4/arch/arm64/configs/${{ env.DEFCONFIG }}
           echo "==> Defconfig placed at arch/arm64/configs/${{ env.DEFCONFIG }}"
 
       # ─────────────────────────────────────────────
@@ -160,7 +160,7 @@ jobs:
           export -f append_cmd
           
           # Source from the true location
-          . ${ROOT_DIR}/kernel/build.config.msm.lahaina
+          . ${ROOT_DIR}/kernel/msm-5.4/build.config.msm.lahaina
           
           DEFCONFIG=ossi_oos14_defconfig
           PRE_DEFCONFIG_CMDS=""
@@ -172,6 +172,7 @@ jobs:
           cp $GITHUB_WORKSPACE/device/qcom/kernelscripts/_setup_env.sh $GITHUB_WORKSPACE/device/qcom/build/_setup_env.sh || true
 
           export BUILD_CONFIG=build.config.custom
+          export KERNEL_DIR=kernel/msm-5.4
           export CC=clang
           export LD=ld.lld
           export AR=llvm-ar
@@ -208,7 +209,7 @@ jobs:
 
           # Find the compiled kernel image dynamically
           echo "==> Searching for compiled kernel image..."
-          KERNEL_BIN=$(find $GITHUB_WORKSPACE/out -type f -name "${{ env.KERNEL_IMAGE }}" | grep "arch/arm64/boot" | head -n 1)
+          KERNEL_BIN=$(find $GITHUB_WORKSPACE/out/msm-5.4-lahaina-qgki-debug/dist -type f -name "${{ env.KERNEL_IMAGE }}" | head -n 1)
 
           if [ -z "$KERNEL_BIN" ]; then
             echo "Searching all of out/ as fallback..."
@@ -217,7 +218,7 @@ jobs:
 
           if [ -z "$KERNEL_BIN" ]; then
             echo "Searching kernel out/ just in case..."
-            KERNEL_BIN=$(find $GITHUB_WORKSPACE/kernel -type f -name "${{ env.KERNEL_IMAGE }}" | head -n 1)
+            KERNEL_BIN=$(find $GITHUB_WORKSPACE/kernel/msm-5.4 -type f -name "${{ env.KERNEL_IMAGE }}" | head -n 1)
           fi
 
           if [ -z "$KERNEL_BIN" ]; then
