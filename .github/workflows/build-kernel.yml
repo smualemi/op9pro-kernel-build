@@ -156,18 +156,50 @@ jobs:
 
           export PATH="$CLANG_DIR/bin:$GCC64_DIR/bin:$GCC32_DIR/bin:$PATH"
 
+          # ────────────────────────────────────────────────────────────
+          # FIX 1: SWITCH FROM DEBUG TO NON-DEBUG VARIANT
+          # ────────────────────────────────────────────────────────────
+          # The defconfig fragment chain in build.config.msm.lahaina uses
+          # lahaina-qgki-debug_defconfig, which adds CONFIG_DEBUG_PREEMPT=y
+          # and sets LOCALVERSION="-qgki-debug". This breaks KMI/ABI
+          # compatibility with stock vendor modules that expect a pure
+          # non-debug kernel. sed it to use the non-debug variant.
+          # ────────────────────────────────────────────────────────────
+          echo "==> [CRITICAL] Switching from debug to non-debug build variant..."
+          echo "    Before:"
+          grep -n "debug" $GITHUB_WORKSPACE/kernel/msm-5.4/build.config.msm.lahaina || true
+          sed -i 's/lahaina-qgki-debug/lahaina-qgki/g' $GITHUB_WORKSPACE/kernel/msm-5.4/build.config.msm.lahaina
+          echo "    After:"
+          grep -n "qgki" $GITHUB_WORKSPACE/kernel/msm-5.4/build.config.msm.lahaina || true
+
+          # ────────────────────────────────────────────────────────────
+          # FIX 2: FORCE EXACT STOCK VERMAGIC IN ALL DEFCONFIG FRAGMENTS
+          # ────────────────────────────────────────────────────────────
+          # The OEM build.sh does NOT support POST_DEFCONFIG_CMDS, so
+          # we must force CONFIG_LOCALVERSION BEFORE defconfig generation
+          # by patching the fragment files themselves.
+          # Stock vermagic: 5.4.xxx-qgki-gd2a1055adeb0
+          # Without this, the non-debug variant would set "-qgki-consolidate"
+          # which still mismatches stock vendor modules.
+          # ────────────────────────────────────────────────────────────
+          echo "==> [CRITICAL] Forcing stock LOCALVERSION in defconfig fragments..."
+          CONFIGS_DIR="$GITHUB_WORKSPACE/kernel/msm-5.4/arch/arm64/configs"
+          # Patch any fragment or defconfig that sets CONFIG_LOCALVERSION
+          find "$CONFIGS_DIR" -type f \( -name "*.config" -o -name "*defconfig" \) | while read f; do
+            if grep -q 'CONFIG_LOCALVERSION=' "$f"; then
+              echo "    Patching: $f"
+              sed -i 's/CONFIG_LOCALVERSION="[^"]*"/CONFIG_LOCALVERSION="-qgki-gd2a1055adeb0"/g' "$f"
+            fi
+          done
+          echo "    Verifying LOCALVERSION across all configs:"
+          grep -rn 'CONFIG_LOCALVERSION=' "$CONFIGS_DIR" || true
+
           # Create Proxy Config
           # ────────────────────────────────────────────────────────────
-          # CRITICAL: The defconfig fragment chain overrides LOCALVERSION:
-          #   base defconfig → "-qgki"
-          #   lahaina_consolidate.config → "-qgki-consolidate"
-          #   lahaina_debug.config → "-qgki-debug"
-          #
-          # Our LOCALVERSION shell var is ignored because Kconfig fragments
-          # run AFTER and override it. We MUST use POST_DEFCONFIG_CMDS to
-          # force-set CONFIG_LOCALVERSION in .config after all fragments
-          # are merged. This ensures the vermagic matches stock:
-          #   5.4.xxx-qgki-gd2a1055adeb0
+          # The proxy config sources build.config.msm.lahaina (now patched
+          # to non-debug) and sets up the environment for the OEM build.sh.
+          # POST_DEFCONFIG_CMDS is kept as a best-effort backup, but the
+          # real fix is the sed patches above.
           # ────────────────────────────────────────────────────────────
           cat << 'EOF' > build.config.custom
           function append_cmd() {
@@ -182,7 +214,8 @@ jobs:
           # Source from the true location
           . ${ROOT_DIR}/kernel/msm-5.4/build.config.msm.lahaina
 
-          # Force the correct stock vermagic AFTER all defconfig fragments
+          # Best-effort: Force correct LOCALVERSION via POST_DEFCONFIG_CMDS
+          # (works only if the build script supports it; OEM script may ignore)
           function fix_localversion() {
               ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config \
                 --set-str LOCALVERSION "-qgki-gd2a1055adeb0"
@@ -215,6 +248,8 @@ jobs:
 
           echo "============================================"
           echo "  Executing Official QCOM Build Wrapper"
+          echo "  Variant: NON-DEBUG (lahaina-qgki)"
+          echo "  Target LOCALVERSION: -qgki-gd2a1055adeb0"
           echo "============================================"
           bash device/qcom/kernelscripts/build.sh LLVM=1 LLVM_IAS=1
 
