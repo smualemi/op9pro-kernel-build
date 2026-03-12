@@ -142,6 +142,18 @@ jobs:
             $GITHUB_WORKSPACE/kernel/msm-5.4/build.config.common
 
       # ─────────────────────────────────────────────
+      # 4.5. ALLOCATE SWAP SPACE (PREVENT OOM)
+      # ─────────────────────────────────────────────
+      - name: Allocate Swap Space
+        run: |
+          echo "==> Allocating 10GB swap space to prevent LLVM LTO out-of-memory crash..."
+          sudo fallocate -l 10G /swapfile
+          sudo chmod 600 /swapfile
+          sudo mkswap /swapfile
+          sudo swapon /swapfile
+          free -h
+
+      # ─────────────────────────────────────────────
       # 5. BUILD WITH WRAPPER SCRIPT
       # ─────────────────────────────────────────────
       - name: Generate Proxy Config & Build
@@ -158,22 +170,6 @@ jobs:
 
           # ────────────────────────────────────────────────────────────
           # FIX 1: SWITCH TO qgki-consolidate VARIANT
-          # ────────────────────────────────────────────────────────────
-          # build.config.msm.lahaina has: VARIANTS=(qgki-debug ...)
-          # The generate_defconfig function picks the FIRST variant and
-          # constructs: vendor/lahaina-${VARIANT}_defconfig
-          #
-          # History of fixes:
-          #   Run #60-61: Used qgki-debug → added CONFIG_DEBUG_PREEMPT=y → bootloop
-          #   Run #62:    Used qgki (plain) → REMOVED lahaina_consolidate.config → bootloop
-          #   Run #63:    Use qgki-consolidate → keeps consolidate, drops debug ✓
-          #
-          # The stock OnePlus kernel was built with consolidate configs.
-          # Only the debug fragment breaks KMI ABI compatibility.
-          #
-          # Fragment blend result:
-          #   gki_defconfig → lahaina_ALLYES_GKI → lahaina_QGKI → lahaina_consolidate
-          #   (NO lahaina_debug.config)
           # ────────────────────────────────────────────────────────────
           echo "==> [CRITICAL] Switching to qgki-consolidate variant..."
           echo "    Before:"
@@ -193,13 +189,6 @@ jobs:
           # ────────────────────────────────────────────────────────────
           # FIX 2: FORCE EXACT STOCK VERMAGIC IN ALL DEFCONFIG FRAGMENTS
           # ────────────────────────────────────────────────────────────
-          # The OEM build.sh does NOT support POST_DEFCONFIG_CMDS, so
-          # we must force CONFIG_LOCALVERSION BEFORE defconfig generation
-          # by patching the fragment files themselves.
-          # Stock vermagic: 5.4.xxx-qgki-gd2a1055adeb0
-          # Without this, the consolidate variant would set "-qgki-consolidate"
-          # which still mismatches stock vendor modules.
-          # ────────────────────────────────────────────────────────────
           echo "==> [CRITICAL] Forcing stock LOCALVERSION in defconfig fragments..."
           CONFIGS_DIR="$GITHUB_WORKSPACE/kernel/msm-5.4/arch/arm64/configs"
           # Patch any fragment or defconfig that sets CONFIG_LOCALVERSION
@@ -213,11 +202,6 @@ jobs:
           grep -rn 'CONFIG_LOCALVERSION=' "$CONFIGS_DIR" || true
 
           # Create Proxy Config
-          # ────────────────────────────────────────────────────────────
-          # The proxy config sources build.config.msm.lahaina (now patched
-          # to qgki-consolidate) and sets up the environment for the OEM build.sh.
-          # POST_DEFCONFIG_CMDS is kept as a best-effort backup, but the
-          # real fix is the sed patches above.
           # ────────────────────────────────────────────────────────────
           cat << 'EOF' > build.config.custom
           function append_cmd() {
@@ -233,7 +217,6 @@ jobs:
           . ${ROOT_DIR}/kernel/msm-5.4/build.config.msm.lahaina
 
           # Best-effort: Force correct LOCALVERSION via POST_DEFCONFIG_CMDS
-          # (works only if the build script supports it; OEM script may ignore)
           function fix_localversion() {
               ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config \
                 --set-str LOCALVERSION "-qgki-gd2a1055adeb0"
