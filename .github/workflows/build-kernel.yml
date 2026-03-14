@@ -52,13 +52,9 @@ jobs:
 
       - name: Clone Toolchains
         run: |
-          echo "==> Cloning official AOSP Clang 11.0.2..."
           git clone https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 -b android11-release --depth=1 $GITHUB_WORKSPACE/toolchain/clang
-          echo "==> Cloning GCC 4.9 aarch64 cross-compiler..."
           git clone --depth=1 -b lineage-19.1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9.git $GITHUB_WORKSPACE/toolchain/gcc-aarch64
-          echo "==> Cloning GCC 4.9 arm32 cross-compiler..."
           git clone --depth=1 -b lineage-19.1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9.git $GITHUB_WORKSPACE/toolchain/gcc-arm32
-          echo "==> Cloning AOSP build scripts..."
           git clone https://android.googlesource.com/kernel/build --depth=1 $GITHUB_WORKSPACE/build
 
       - name: Construct Native AOSP Workspace Structure
@@ -67,7 +63,6 @@ jobs:
           rsync -a $GITHUB_WORKSPACE/kernel_modules_devicetree/device/ $GITHUB_WORKSPACE/device/
           rsync -a $GITHUB_WORKSPACE/kernel_modules_devicetree/vendor/ $GITHUB_WORKSPACE/vendor/
 
-          # إرجاع مجلد techpack لضمان بناء تعريفات الشاشة والصوت كـ وحدات (Modules)
           mkdir -p $GITHUB_WORKSPACE/kernel/msm-5.4/techpack/
           rsync -a $GITHUB_WORKSPACE/kernel_modules_devicetree/kernel/msm-5.4/techpack/ $GITHUB_WORKSPACE/kernel/msm-5.4/techpack/
 
@@ -76,7 +71,6 @@ jobs:
 
       - name: Allocate Swap Space
         run: |
-          echo "==> Allocating 10GB supplementary swap space..."
           sudo fallocate -l 10G /swapfile2
           sudo chmod 600 /swapfile2
           sudo mkswap /swapfile2
@@ -92,8 +86,6 @@ jobs:
 
           CONFIGS_DIR="$GITHUB_WORKSPACE/kernel/msm-5.4/arch/arm64/configs"
           find "$CONFIGS_DIR" -type f \( -name "*.config" -o -name "*defconfig" \) -exec sed -i 's/CONFIG_LOCALVERSION="[^"]*"/CONFIG_LOCALVERSION="-qgki-gd2a1055adeb0"/g' {} +
-          
-          # لا نحتاج لتعطيل MODVERSIONS هنا لأننا سنستخدم التعريفات المطابقة تماماً
           
           cat << 'EOF' > build.config.custom
           function append_cmd() {
@@ -138,13 +130,11 @@ jobs:
 
       - name: Build Magisk Module for Out-of-Tree Modules
         run: |
-          echo "==> Creating Magisk Module structure for compiled .ko files..."
+          mkdir -p $GITHUB_WORKSPACE/FinalOutput
           mkdir -p $GITHUB_WORKSPACE/MagiskModule/custom_ko
           
-          # جمع كافة التعريفات بصيغة .ko التي تم بناؤها
           find $GITHUB_WORKSPACE/out -name "*.ko" -type f -exec cp {} $GITHUB_WORKSPACE/MagiskModule/custom_ko/ \;
           
-          # إنشاء ملف تعريف الماجيسك
           cat << 'EOF' > $GITHUB_WORKSPACE/MagiskModule/module.prop
           id=op9pro_custom_kernel_modules
           name=OnePlus 9 Pro Custom Kernel Modules
@@ -154,7 +144,6 @@ jobs:
           description=Systemlessly injects matching out-of-tree modules (Display/Audio/WLAN) for the newly flashed custom kernel.
           EOF
           
-          # إنشاء سكربت ذكي يقوم بتعويض الملفات في مساراتها الصحيحة تلقائياً داخل الهاتف
           cat << 'EOF' > $GITHUB_WORKSPACE/MagiskModule/customize.sh
           ui_print "- Installing Custom Kernel Modules..."
           MODULES_DIR=""
@@ -166,7 +155,6 @@ jobs:
           
           if [ -n "$MODULES_DIR" ]; then
               ui_print "- Target modules directory: $MODULES_DIR"
-              # البحث عن كل ملف وضع نسخة مطابقة له في مساره الأصلي داخل مجلد الإضافة
               for ko in $(find $MODPATH/custom_ko -type f -name "*.ko"); do
                   filename=$(basename $ko)
                   sys_path=$(find $MODULES_DIR -type f -name "$filename" | head -n 1)
@@ -176,7 +164,6 @@ jobs:
                       cp $ko $MODPATH/system$MODULES_DIR/$rel_path
                       ui_print "  Overlaid: $filename"
                   else
-                      # إذا كان الملف جديداً يوضع مباشرة في المسار الأساسي
                       cp $ko $MODPATH/system$MODULES_DIR/
                   fi
               done
@@ -188,23 +175,27 @@ jobs:
           EOF
           
           cd $GITHUB_WORKSPACE/MagiskModule
-          zip -r9 ../OP9Pro-Kernel-Modules-Magisk.zip .
-          echo "==> Magisk Module Created!"
+          zip -r9 $GITHUB_WORKSPACE/FinalOutput/OP9Pro-Kernel-Modules-Magisk.zip .
 
-      - name: Collect Kernel Image
+      - name: Package Kernel into AnyKernel3 ZIP
         run: |
           RAW_IMAGE="$GITHUB_WORKSPACE/out/msm-5.4-lahaina-qgki-consolidate/dist/Image"
           if [ ! -f "$RAW_IMAGE" ]; then
             echo "ERROR: Kernel image not found at $RAW_IMAGE !"
             exit 1
           fi
-          mkdir -p $GITHUB_WORKSPACE/FinalOutput
-          cp "$RAW_IMAGE" $GITHUB_WORKSPACE/FinalOutput/Image
-          cp $GITHUB_WORKSPACE/OP9Pro-Kernel-Modules-Magisk.zip $GITHUB_WORKSPACE/FinalOutput/
+
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git $GITHUB_WORKSPACE/AnyKernel3
+          cd $GITHUB_WORKSPACE/AnyKernel3
+
+          rm -rf modules patch ramdisk README.md
+          cp $GITHUB_WORKSPACE/anykernel/anykernel.sh ./anykernel.sh
+          cp "$RAW_IMAGE" ./Image
+
+          zip -r9 "$GITHUB_WORKSPACE/FinalOutput/OP9Pro-Custom-Kernel-AK3.zip" . -x '.git/*' -x '*.zip'
 
       - name: Upload Kernel Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: OnePlus-9Pro-Kernel-And-Modules
           path: FinalOutput/*
-          
