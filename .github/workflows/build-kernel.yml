@@ -79,7 +79,7 @@ jobs:
       - name: Generate Proxy Config & Build Kernel with Modules
         run: |
           cd $GITHUB_WORKSPACE
-          export PATH="$GITHUB_WORKSPACE/toolchain/clang/clang-r383902b/bin:$GITHUB_WORKSPACE/toolchain/gcc-aarch64/bin:$GITHUB_WORKSPACE/toolchain/gcc-arm32/bin:$PATH"
+          export PATH="$GITHUB_WORKSPACE/toolchain/clang/bin:$GITHUB_WORKSPACE/toolchain/gcc-aarch64/bin:$GITHUB_WORKSPACE/toolchain/gcc-arm32/bin:$PATH"
 
           sed -i 's/VARIANTS=(qgki-debug/VARIANTS=(qgki-consolidate/' $GITHUB_WORKSPACE/kernel/msm-5.4/build.config.msm.lahaina
           sed -i 's/qgki-debug | qgki-consolidate/qgki-consolidate | qgki-consolidate/' $GITHUB_WORKSPACE/kernel/msm-5.4/build.config.msm.lahaina
