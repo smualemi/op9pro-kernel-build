@@ -55,10 +55,8 @@ jobs:
           echo "==> Fetching Official AOSP Clang 14 (r450784d)..."
           mkdir -p $GITHUB_WORKSPACE/toolchain/clang
           
-          # المحاولة الأولى: التنزيل المباشر من خوادم جوجل الرسمية
           if ! wget -qO clang.tar.gz "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android13-release/clang-r450784d.tar.gz"; then
             echo "==> AOSP Gitiles failed, falling back to reliable GitHub mirror..."
-            # المحاولة البديلة: النسخ من مستودع Droidian المستقر
             git clone --depth=1 https://github.com/droidian/android-platform-prebuilts-clang-host-linux-x86-33.git /tmp/clang-mirror
             mv /tmp/clang-mirror/clang-r450784d/* $GITHUB_WORKSPACE/toolchain/clang/
             rm -rf /tmp/clang-mirror
@@ -115,17 +113,9 @@ jobs:
           function fix_localversion() {
               ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config --set-str LOCALVERSION "-qgki-gd2a1055adeb0"
               
-              # تعطيل المتغيرات المتضاربة لتفادي Bootloop
               ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config --disable CFS_BANDWIDTH
               ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config --disable DRM_MSM_IRIS
               
-              # دمج وحدات الطاقة والمسارات داخل النواة
-              ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config --enable PINCTRL
-              ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config --enable PINCTRL_QCOM
-              ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config --enable REGULATOR
-              ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config --enable REGULATOR_QCOM_RPMH
-              
-              # تعطيل التحقق من توافق الرموز والتوقيعات لقبول وحدات النظام الأصلية
               ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config --disable MODVERSIONS
               ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config --disable MODULE_SIG
               ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config --disable MODULE_SIG_ALL
@@ -156,6 +146,8 @@ jobs:
           find $GITHUB_WORKSPACE/kernel/msm-5.4/ -name ".git" -exec rm -rf {} +
           echo "" > $GITHUB_WORKSPACE/kernel/msm-5.4/.scmversion
           sed -i 's/echo "+"/echo ""/g' $GITHUB_WORKSPACE/kernel/msm-5.4/scripts/setlocalversion
+
+          find $GITHUB_WORKSPACE/kernel/msm-5.4/ -type f -name "Makefile*" -exec sed -i 's/-Werror//g' {} +
 
           bash device/qcom/kernelscripts/build.sh LLVM=1 LLVM_IAS=1
           
