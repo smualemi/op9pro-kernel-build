@@ -147,7 +147,7 @@ jobs:
           echo "" > $GITHUB_WORKSPACE/kernel/msm-5.4/.scmversion
           sed -i 's/echo "+"/echo ""/g' $GITHUB_WORKSPACE/kernel/msm-5.4/scripts/setlocalversion
 
-          find $GITHUB_WORKSPACE/kernel/msm-5.4/ -type f -name "Makefile*" -exec sed -i 's/-Werror[^ ]*//g' {} +
+          find $GITHUB_WORKSPACE/kernel/msm-5.4/ -type f -name "Makefile*" -exec sed -i 's/-Werror[a-zA-Z0-9_=-]*//g' {} +
 
           bash device/qcom/kernelscripts/build.sh LLVM=1 LLVM_IAS=1
           
