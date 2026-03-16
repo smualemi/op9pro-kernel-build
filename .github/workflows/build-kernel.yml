@@ -52,7 +52,22 @@ jobs:
 
       - name: Clone Toolchains
         run: |
-          git clone https://gitlab.com/crdroidandroid/android_prebuilts_clang_host_linux-x86_clang-r450784d.git --depth=1 $GITHUB_WORKSPACE/toolchain/clang
+          echo "==> Fetching Official AOSP Clang 14 (r450784d)..."
+          mkdir -p $GITHUB_WORKSPACE/toolchain/clang
+          
+          # المحاولة الأولى: التنزيل المباشر من خوادم جوجل الرسمية
+          if ! wget -qO clang.tar.gz "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android13-release/clang-r450784d.tar.gz"; then
+            echo "==> AOSP Gitiles failed, falling back to reliable GitHub mirror..."
+            # المحاولة البديلة: النسخ من مستودع Droidian المستقر
+            git clone --depth=1 https://github.com/droidian/android-platform-prebuilts-clang-host-linux-x86-33.git /tmp/clang-mirror
+            mv /tmp/clang-mirror/clang-r450784d/* $GITHUB_WORKSPACE/toolchain/clang/
+            rm -rf /tmp/clang-mirror
+          else
+            tar -xf clang.tar.gz -C $GITHUB_WORKSPACE/toolchain/clang
+            rm -f clang.tar.gz
+          fi
+          
+          echo "==> Cloning GCC & Build Tools..."
           git clone --depth=1 -b lineage-19.1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9.git $GITHUB_WORKSPACE/toolchain/gcc-aarch64
           git clone --depth=1 -b lineage-19.1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9.git $GITHUB_WORKSPACE/toolchain/gcc-arm32
           git clone https://android.googlesource.com/kernel/build --depth=1 $GITHUB_WORKSPACE/build
