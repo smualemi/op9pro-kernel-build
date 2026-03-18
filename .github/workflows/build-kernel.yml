@@ -138,9 +138,12 @@ jobs:
               ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config --set-str LOCALVERSION "-qgki-gd2a1055adeb0"
 
               # ===================================================================
-              # CRITICAL FIX: Disable MODVERSIONS to prevent CRC mismatch bootloop
+              # CRITICAL FIX: Enable MODVERSIONS to match stock vendor modules
+              # Stock modules are compiled WITH modversions — the kernel MUST
+              # also have MODVERSIONS enabled or version magic will mismatch
+              # and ALL modules will fail to load (Exec format error).
               # ===================================================================
-              ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config --disable MODVERSIONS
+              ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config --enable MODVERSIONS
               ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config --disable MODULE_SIG
               ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config --disable MODULE_SIG_ALL
 
@@ -351,7 +354,7 @@ jobs:
               stock_name=$(basename $stock_ko)
               built=$(find $GITHUB_WORKSPACE/out -name "$stock_name" -type f | head -n 1)
               if [ -z "$built" ]; then
-                  echo "  [INFO] $stock_name — stock module kept (OK: MODVERSIONS disabled, no CRC check)"
+                  echo "  [INFO] $stock_name — stock module kept (MODVERSIONS enabled, CRC should match)"
               fi
           done
 
