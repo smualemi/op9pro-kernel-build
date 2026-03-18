@@ -57,11 +57,11 @@ jobs:
         run: |
           echo "==> Fetching AOSP Clang 11 (r383902b1) — matches stock OnePlus kernel..."
           mkdir -p $GITHUB_WORKSPACE/toolchain/clang
-          
+
           # Stock kernel /proc/version: Android (6877366 based on r383902b1) clang version 11.0.2
           # Clone the full AOSP clang prebuilts (android11-release), then extract r383902 version
           git clone https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 -b android11-release --depth=1 /tmp/clang-full
-          
+
           # Find the correct clang-r383902* directory (handles naming: r383902, r383902b, r383902b1)
           CLANG_DIR=$(find /tmp/clang-full -maxdepth 1 -type d -name "clang-r383902*" | head -n 1)
           if [ -z "$CLANG_DIR" ]; then
@@ -70,25 +70,25 @@ jobs:
             # Fallback: use the latest available clang in the repo
             CLANG_DIR=$(ls -d /tmp/clang-full/clang-*/ 2>/dev/null | sort -V | tail -n1)
           fi
-          
+
           if [ -z "$CLANG_DIR" ]; then
             echo "ERROR: No AOSP Clang found!"
             exit 1
           fi
-          
+
           echo "==> Using clang from: $CLANG_DIR"
           cp -r "$CLANG_DIR"/* $GITHUB_WORKSPACE/toolchain/clang/
           rm -rf /tmp/clang-full
-          
+
           # Verify clang works
           echo "==> Clang version:"
           $GITHUB_WORKSPACE/toolchain/clang/bin/clang --version
-          
+
           echo "==> Cloning GCC & Build Tools..."
           git clone --depth=1 -b lineage-19.1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9.git $GITHUB_WORKSPACE/toolchain/gcc-aarch64
           git clone --depth=1 -b lineage-19.1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9.git $GITHUB_WORKSPACE/toolchain/gcc-arm32
           git clone https://android.googlesource.com/kernel/build --depth=1 $GITHUB_WORKSPACE/build
-          
+
       - name: Construct Native AOSP Workspace Structure
         run: |
           mkdir -p $GITHUB_WORKSPACE/device $GITHUB_WORKSPACE/vendor
@@ -99,6 +99,7 @@ jobs:
           rsync -a $GITHUB_WORKSPACE/kernel_modules_devicetree/kernel/msm-5.4/techpack/ $GITHUB_WORKSPACE/kernel/msm-5.4/techpack/
 
           rm -rf $GITHUB_WORKSPACE/kernel_modules_devicetree
+
           ln -sfn $GITHUB_WORKSPACE/device/qcom/kernelscripts/upstream/build.config.common $GITHUB_WORKSPACE/kernel/msm-5.4/build.config.common
 
       - name: Allocate Swap Space
@@ -120,7 +121,7 @@ jobs:
           # Synchronize LOCALVERSION across ALL configs to match stock exactly
           CONFIGS_DIR="$GITHUB_WORKSPACE/kernel/msm-5.4/arch/arm64/configs"
           find "$CONFIGS_DIR" -type f \( -name "*.config" -o -name "*defconfig" \) -exec sed -i 's/CONFIG_LOCALVERSION="[^"]*"/CONFIG_LOCALVERSION="-qgki-gd2a1055adeb0"/g' {} +
-          
+
           cat << 'EOF' > build.config.custom
           function append_cmd() {
               if [ ! -z "${!1}" ]; then
@@ -131,11 +132,11 @@ jobs:
           }
           export -f append_cmd
           . ${ROOT_DIR}/kernel/msm-5.4/build.config.msm.lahaina
-          
+
           function fix_localversion() {
               # Force strictly matching LOCALVERSION to match stock kernel string
               ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config --set-str LOCALVERSION "-qgki-gd2a1055adeb0"
-              
+
               # ===================================================================
               # CRITICAL FIX: Disable MODVERSIONS to prevent CRC mismatch bootloop
               # 
@@ -151,13 +152,66 @@ jobs:
               ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config --disable MODVERSIONS
               ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config --disable MODULE_SIG
               ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config --disable MODULE_SIG_ALL
-              
-              # Ensure DRM_MSM_IRIS is ON (required for Pixelworks Iris display chip)
+
+              # ===================================================================
+              # CRITICAL FIX: Enable DRM/GPU/Display drivers
+              #
+              # Without these, the display will not initialize:
+              # - DRMMaster::Init: drmOpen fails repeatedly
+              # - GPU firmware (a660_sqe.fw, a660_gmu.bin) cannot load
+              # - SurfaceFlinger/Display HAL crashes with SIGSEGV at NULL
+              # - Device stuck at OnePlus logo
+              # ===================================================================
+              ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config --enable DRM
+              ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config --module DRM_MSM
               ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config --enable DRM_MSM_IRIS
-              
+
+              # ===================================================================
+              # CRITICAL FIX: Enable Adreno GPU (KGSL) driver
+              #
+              # Required for GPU hardware acceleration on SM8350 (Adreno 660)
+              # Without this, GPU firmware loading fails and display doesn't work
+              # ===================================================================
+              ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config --module QCOM_KGSL
+
+              # ===================================================================
+              # CRITICAL FIX: Enable FastRPC/ADSP communication driver
+              #
+              # Without this, /dev/adsprpc-smd device node is not created:
+              # - sscrpcd: apps_dev_init failed for domain 2 (No such device)
+              # - Audio, sensors, camera all fail to communicate with DSP
+              # - 200+ repeated errors in boot log
+              # ===================================================================
+              ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config --module MSM_FASTRPC
+
+              # ===================================================================
+              # Enable Qualcomm subsystem drivers required for SM8350
+              # These are needed for proper hardware initialization
+              # ===================================================================
+              # Remoteproc/PIL - loads firmware for ADSP, CDSP, MPSS subsystems
+              ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config --enable QCOM_Q6V5_PAS
+              ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config --enable QCOM_PIL_INFO
+
+              # RPM/RPMH - resource power manager (critical for power management)
+              ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config --enable QCOM_RPMH
+
+              # SMEM - shared memory between processors
+              ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config --enable QCOM_SMEM
+
+              # GLINK/QMI - inter-processor communication
+              ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config --enable RPMSG_QCOM_GLINK_SMEM
+              ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config --enable RPMSG_QCOM_GLINK_RPM
+
+              # SMP2P and SMSM - state sharing between processors
+              ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config --enable QCOM_SMP2P
+              ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config --enable QCOM_SMSM
+
+              # CMD-DB - command database for RPMh
+              ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config --enable QCOM_COMMAND_DB
+
               # Ensure CFS_BANDWIDTH is ON (stock scheduler feature)
               ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config --enable CFS_BANDWIDTH
-              
+
               (cd ${KERNEL_DIR} && make "${TOOL_ARGS[@]}" O=${OUT_DIR} ${MAKE_ARGS} olddefconfig)
           }
           append_cmd POST_DEFCONFIG_CMDS 'fix_localversion'
@@ -193,7 +247,7 @@ jobs:
 
           # Run the build script
           bash device/qcom/kernelscripts/build.sh LLVM=1 LLVM_IAS=1 DTC_FLAGS="${DTC_FLAGS}"
-          
+
       - name: Prepare FinalOutput Directory
         run: mkdir -p $GITHUB_WORKSPACE/FinalOutput
 
@@ -201,11 +255,11 @@ jobs:
         run: |
           mkdir -p $GITHUB_WORKSPACE/MagiskModule/custom_ko
           find $GITHUB_WORKSPACE/out -name "*.ko" -type f -exec cp {} $GITHUB_WORKSPACE/MagiskModule/custom_ko/ \;
-          
+
           # Log how many modules were built
           BUILT_COUNT=$(find $GITHUB_WORKSPACE/MagiskModule/custom_ko -name "*.ko" | wc -l)
           echo "==> Built $BUILT_COUNT kernel modules (.ko files)"
-          
+
           cat << 'EOF' > $GITHUB_WORKSPACE/MagiskModule/module.prop
           id=op9pro_custom_kernel_modules
           name=OnePlus 9 Pro Custom Kernel Modules
@@ -214,7 +268,7 @@ jobs:
           author=CustomBuild
           description=Systemlessly injects out-of-tree modules for the custom kernel.
           EOF
-          
+
           cat << 'EOF' > $GITHUB_WORKSPACE/MagiskModule/customize.sh
           ui_print "- Installing Custom Kernel Modules..."
           MODULES_DIR="/vendor/lib/modules"
@@ -222,7 +276,7 @@ jobs:
               MODULES_DIR="/vendor_dlkm/lib/modules"
           fi
           ui_print "- Target directory: $MODULES_DIR"
-          
+
           REPLACED=0
           ADDED=0
           for ko in $(find $MODPATH/custom_ko -type f -name "*.ko"); do
@@ -243,7 +297,7 @@ jobs:
           ui_print "- Done: $REPLACED replaced, $ADDED added"
           rm -rf $MODPATH/custom_ko
           EOF
-          
+
           cd $GITHUB_WORKSPACE/MagiskModule
           zip -r9 $GITHUB_WORKSPACE/FinalOutput/OP9Pro-Kernel-Modules.zip .
 
@@ -266,7 +320,7 @@ jobs:
           echo "==> Preparing vendor_boot patcher..."
           mkdir -p $GITHUB_WORKSPACE/vendor_boot_patch
           cd $GITHUB_WORKSPACE/vendor_boot_patch
-          
+
           # stock_vendor_boot.zip must be in the repo root (uploaded or checked in)
           if [ ! -f "$GITHUB_WORKSPACE/stock_vendor_boot.zip" ]; then
              echo "============================================================="
@@ -286,29 +340,29 @@ jobs:
             echo "ERROR: No .img found in stock_vendor_boot.zip!"
             exit 1
           fi
-          
+
           if [ "$STOCK_IMG" != "./vendor_boot.img" ] && [ "$STOCK_IMG" != "vendor_boot.img" ]; then
             mv "$STOCK_IMG" vendor_boot.img
           fi
-          
+
           echo "==> Fetching official magiskboot from Magisk APK..."
           wget -qO magisk.apk https://github.com/topjohnwu/Magisk/releases/download/v27.0/Magisk-v27.0.apk
           unzip -j magisk.apk "lib/x86_64/libmagiskboot.so" -d .
           mv libmagiskboot.so magiskboot
           chmod +x magiskboot
-          
+
           echo "==> Unpacking vendor_boot.img..."
           ./magiskboot unpack vendor_boot.img
-          
+
           if [ ! -f "ramdisk.cpio" ]; then
             echo "ERROR: magiskboot failed to extract ramdisk.cpio!"
             exit 1
           fi
-          
+
           mkdir ramdisk_ext
           cd ramdisk_ext
           cpio -i < ../ramdisk.cpio
-          
+
           echo "==> Replacing stock .ko modules with newly built ones..."
           REPLACED=0
           NOT_FOUND=0
@@ -325,7 +379,7 @@ jobs:
               fi
           done
           echo "==> Module replacement summary: $REPLACED replaced, $NOT_FOUND not found in ramdisk"
-          
+
           # List stock modules that were NOT replaced (potential mismatch risk)
           echo "==> Stock modules NOT replaced (kept original):"
           for stock_ko in $(find . -name "*.ko" -type f); do
@@ -335,10 +389,10 @@ jobs:
                   echo "  [INFO] $stock_name — stock module kept (OK: MODVERSIONS disabled, no CRC check)"
               fi
           done
-          
+
           find . | cpio -H newc -o > ../ramdisk.cpio
           cd ..
-          
+
           echo "==> Repacking vendor_boot_custom.img..."
           ./magiskboot repack vendor_boot.img vendor_boot_custom.img
           cp vendor_boot_custom.img $GITHUB_WORKSPACE/FinalOutput/
