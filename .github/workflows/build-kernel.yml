@@ -55,10 +55,10 @@ jobs:
 
       - name: Clone Toolchains
         run: |
-          echo "==> Fetching AOSP Clang (r416183b) — matches stock OnePlus kernel..."
+          echo "==> Fetching AOSP Clang 11 (r383902b1) — matches stock OnePlus kernel..."
           mkdir -p $GITHUB_WORKSPACE/toolchain/clang
-          git clone https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 -b android12-release --depth=1 /tmp/clang-full
-          CLANG_DIR=$(find /tmp/clang-full -maxdepth 1 -type d -name "clang-r416183b*" | head -n 1)
+          git clone https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 -b android11-release --depth=1 /tmp/clang-full
+          CLANG_DIR=$(find /tmp/clang-full -maxdepth 1 -type d -name "clang-r383902*" | head -n 1)
           if [ -z "$CLANG_DIR" ]; then
             CLANG_DIR=$(ls -d /tmp/clang-full/clang-*/ 2>/dev/null | sort -V | tail -n1)
           fi
@@ -119,8 +119,8 @@ jobs:
               ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config --disable MODULE_SIG_ALL
               ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config --enable MODULE_FORCE_LOAD
 
-              # Force strictly matching LOCALVERSION to what the user's system outputs (gd2a1055adeb0)
-              ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config --set-str LOCALVERSION "-gd2a1055adeb0"
+              # Force strictly matching LOCALVERSION to what the user's system outputs
+              ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config --set-str LOCALVERSION "-qgki-gd2a1055adeb0"
 
               (cd ${KERNEL_DIR} && make "${TOOL_ARGS[@]}" O=${OUT_DIR} ${MAKE_ARGS} olddefconfig)
           }
