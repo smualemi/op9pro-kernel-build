@@ -119,8 +119,8 @@ jobs:
               ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config --disable MODULE_SIG_ALL
               ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config --enable MODULE_FORCE_LOAD
 
-              # Force strictly matching LOCALVERSION
-              ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config --set-str LOCALVERSION "-qgki-consolidate"
+              # Force strictly matching LOCALVERSION to what the user's system outputs (gd2a1055adeb0)
+              ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config --set-str LOCALVERSION "-gd2a1055adeb0"
 
               (cd ${KERNEL_DIR} && make "${TOOL_ARGS[@]}" O=${OUT_DIR} ${MAKE_ARGS} olddefconfig)
           }
@@ -206,9 +206,9 @@ jobs:
           DTB=$(find $GITHUB_WORKSPACE/out -type f -name "dtb" | head -n 1)
           if [ -n "$DTB" ]; then cp "$DTB" ./dtb; fi
 
-          echo "==> Injecting Vendor Modules for OOS 14 (vendor/lib/modules)..."
-          mkdir -p modules/vendor/lib/modules
-          find $GITHUB_WORKSPACE/out -type f -name "*.ko" -exec cp {} modules/vendor/lib/modules/ \;
+          echo "==> Injecting Vendor Modules for OOS 14 into the exact path (vendor/lib/modules/5.4-gki/)..."
+          mkdir -p modules/vendor/lib/modules/5.4-gki
+          find $GITHUB_WORKSPACE/out -type f -name "*.ko" -exec cp {} modules/vendor/lib/modules/5.4-gki/ \;
 
           echo "==> Zipping..."
           rm -rf .git README.md *placeholder
