@@ -206,9 +206,9 @@ jobs:
           DTB=$(find $GITHUB_WORKSPACE/out -type f -name "dtb" | head -n 1)
           if [ -n "$DTB" ]; then cp "$DTB" ./dtb; fi
 
-          echo "==> Injecting Vendor Modules for OOS 14 (vendor_dlkm)..."
-          mkdir -p modules/vendor_dlkm/lib/modules
-          find $GITHUB_WORKSPACE/out -type f -name "*.ko" -exec cp {} modules/vendor_dlkm/lib/modules/ \;
+          echo "==> Injecting Vendor Modules for OOS 14 (vendor/lib/modules)..."
+          mkdir -p modules/vendor/lib/modules
+          find $GITHUB_WORKSPACE/out -type f -name "*.ko" -exec cp {} modules/vendor/lib/modules/ \;
 
           echo "==> Zipping..."
           rm -rf .git README.md *placeholder
