@@ -120,11 +120,16 @@ jobs:
           sed -i 's/qgki-debug | qgki-consolidate/qgki-consolidate | qgki-consolidate/' $GITHUB_WORKSPACE/kernel/msm-5.4/build.config.msm.lahaina
 
           # ================================================================
-          # Clean build config: no hacks, no overrides
-          # Let the stock defconfig + fragments handle everything naturally.
-          # lahaina_consolidate.config sets LOCALVERSION="-qgki-consolidate"
-          # android-base.config sets MODVERSIONS=y
-          # We do NOT override these — stock is stock.
+          # BUILD CONFIG — BOOTLOOP FIX (Build 110)
+          #
+          # Problem: AnyKernel3 flashes only the kernel Image. The 49
+          # kernel modules in vendor_boot remain from stock. With
+          # MODVERSIONS=y, CRC mismatches cause ALL modules to fail
+          # loading → device hangs at OnePlus logo.
+          #
+          # Fix: Disable MODVERSIONS (removes CRC check) and enable
+          # MODULE_FORCE_LOAD (allows loading despite vermagic diff).
+          # This is the standard approach for ALL custom Android kernels.
           # ================================================================
           cat << 'EOF' > build.config.custom
           function append_cmd() {
@@ -141,8 +146,8 @@ jobs:
               echo "=== POST-DEFCONFIG CONFIG CHECK ==="
               echo "--- LOCALVERSION ---"
               grep "CONFIG_LOCALVERSION=" ${OUT_DIR}/.config || echo "(not found)"
-              echo "--- Module versioning ---"
-              grep -E "CONFIG_MODVERSIONS=|CONFIG_MODULE_SIG=" ${OUT_DIR}/.config || echo "(not found)"
+              echo "--- Module versioning (BEFORE fix) ---"
+              grep -E "CONFIG_MODVERSIONS=|CONFIG_MODULE_SIG=|CONFIG_MODULE_FORCE_LOAD=" ${OUT_DIR}/.config || echo "(not found)"
               echo "--- Display/GPU ---"
               grep -E "CONFIG_DRM=|CONFIG_DRM_MSM=" ${OUT_DIR}/.config || echo "(not found)"
               echo "--- Subsystem loaders ---"
@@ -152,6 +157,35 @@ jobs:
               (cd ${KERNEL_DIR} && make "${TOOL_ARGS[@]}" O=${OUT_DIR} ${MAKE_ARGS} olddefconfig)
           }
           append_cmd POST_DEFCONFIG_CMDS 'post_defconfig_checks'
+
+          function disable_modversions() {
+              echo "============================================"
+              echo "=== BOOTLOOP FIX: DISABLING MODVERSIONS ==="
+              echo "============================================"
+              echo ""
+              echo "Reason: AnyKernel3 only flashes kernel Image."
+              echo "49 modules in vendor_boot are from stock kernel."
+              echo "MODVERSIONS CRC mismatch causes module load failure."
+              echo ""
+
+              # Disable MODVERSIONS — removes CRC verification
+              ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config \
+                  -d MODVERSIONS
+
+              # Enable MODULE_FORCE_LOAD — allows loading modules
+              # even if vermagic string doesn't match exactly
+              ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config \
+                  -e MODULE_FORCE_LOAD
+
+              # Regenerate config to resolve dependencies
+              (cd ${KERNEL_DIR} && make "${TOOL_ARGS[@]}" O=${OUT_DIR} ${MAKE_ARGS} olddefconfig)
+
+              echo ""
+              echo "--- Module config (AFTER fix) ---"
+              grep -E "CONFIG_MODVERSIONS|CONFIG_MODULE_FORCE_LOAD" ${OUT_DIR}/.config
+              echo "============================================"
+          }
+          append_cmd POST_DEFCONFIG_CMDS 'disable_modversions'
           EOF
 
           mkdir -p $GITHUB_WORKSPACE/device/qcom/build
