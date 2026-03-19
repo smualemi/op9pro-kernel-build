@@ -112,19 +112,18 @@ jobs:
           export -f append_cmd
           . ${ROOT_DIR}/kernel/msm-5.4/build.config.msm.lahaina
 
-          function disable_modversions() {
-              echo "=== BOOTLOOP FIX: DISABLING MODVERSIONS & SIGS ==="
-              ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config --disable MODVERSIONS
-              ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config --disable MODULE_SIG
-              ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config --disable MODULE_SIG_ALL
-              ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config --enable MODULE_FORCE_LOAD
+          # OVERWRITE THE DEFAULT DEFCONFIG WITH OUR EXACT DEVICE CONFIG (100% ABI TWIN)
+          cp ${ROOT_DIR}/stock_config.txt ${ROOT_DIR}/${KERNEL_DIR}/arch/arm64/configs/${DEFCONFIG}
 
+          function post_config_mod() {
+              echo "=== FORCING LOCALVERSION AND PRESERVING STOCK CONFIG ==="
+              # We no longer disable MODVERSIONS because we want 100% match.
               # Force strictly matching LOCALVERSION to what the user's system outputs
               ${KERNEL_DIR}/scripts/config --file ${OUT_DIR}/.config --set-str LOCALVERSION "-qgki-gd2a1055adeb0"
 
               (cd ${KERNEL_DIR} && make "${TOOL_ARGS[@]}" O=${OUT_DIR} ${MAKE_ARGS} olddefconfig)
           }
-          append_cmd POST_DEFCONFIG_CMDS 'disable_modversions'
+          append_cmd POST_DEFCONFIG_CMDS 'post_config_mod'
           EOF
 
           mkdir -p $GITHUB_WORKSPACE/device/qcom/build
@@ -174,9 +173,9 @@ jobs:
           cat << 'EOF' > anykernel.sh
           # AnyKernel3 Ramdisk Mod Script
           properties() { '
-          kernel.string=Custom OP9Pro Kernel Compatible with Stock
+          kernel.string=Perfect 1:1 OEM Twin Custom Kernel
           do.devicecheck=1
-          do.modules=1
+          do.modules=0
           do.systemless=1
           do.cleanup=1
           do.cleanuponabort=0
@@ -205,10 +204,6 @@ jobs:
           # Try copying DTBs if they exist
           DTB=$(find $GITHUB_WORKSPACE/out -type f -name "dtb" | head -n 1)
           if [ -n "$DTB" ]; then cp "$DTB" ./dtb; fi
-
-          echo "==> Injecting Vendor Modules for OOS 14 into the exact path (vendor/lib/modules/5.4-gki/)..."
-          mkdir -p modules/vendor/lib/modules/5.4-gki
-          find $GITHUB_WORKSPACE/out -type f -name "*.ko" -exec cp {} modules/vendor/lib/modules/5.4-gki/ \;
 
           echo "==> Zipping..."
           rm -rf .git README.md *placeholder
