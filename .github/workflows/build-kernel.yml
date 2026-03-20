@@ -1,4 +1,4 @@
-name: Build OnePlus 9 Pro Kernel (Android 14 GKI)
+name: Build OnePlus 9 Pro OOS14 Kernel (Forensic Protocol)
 
 on:
   push:
@@ -6,122 +6,84 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  build-kernel:
     runs-on: ubuntu-22.04
-    timeout-minutes: 240
 
     steps:
-      - name: Maximize build space
+      - name: Maximize Runner Disk Space
         run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/powershell /usr/local/share/chromium
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo docker image prune --all --force
           sudo apt-get clean
 
-      - name: Install build dependencies & Repo tool
+      - name: Install Legacy Build Dependencies & libncurses5
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends \
-            git-core gnupg flex bison build-essential zip curl \
-            zlib1g-dev gcc-multilib g++-multilib libc6-dev-i386 libncurses5 lib32ncurses5-dev \
-            x11proto-core-dev libx11-dev lib32z1-dev libgl1-mesa-dev libxml2-utils xsltproc unzip \
-            fontconfig python3 python-is-python3 bc ccache cpio dos2unix rsync kmod dwarves
+          sudo apt-get update
+          # libncurses5 is strictly required for Clang 11.0.2 / lld execution on Ubuntu 22.04
+          sudo apt-get install -y build-essential bc zip libssl-dev libfl-dev curl libncurses5
+
+      - name: Clone Source and Precise Toolchains
+        run: |
+          mkdir -p ${{ github.workspace }}/workspace && cd ${{ github.workspace }}/workspace
+
+          # Clone Kernel Source
+          git clone --depth=1 -b oneplus/sm8350_u_14.0.0_oneplus9 https://github.com/OnePlusOSS/android_kernel_oneplus_sm8350.git kernel
           
-          mkdir -p ~/bin
-          curl https://storage.googleapis.com/git-repo-downloads/repo > ~/bin/repo
-          chmod a+x ~/bin/repo
-          echo "$HOME/bin" >> $GITHUB_PATH
+          # Clone AOSP Clang 11.0.2 (r383902b1)
+          git clone --depth=1 -b clang-r383902b1 https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86 clang-toolchain
 
-      - name: Initialize & Sync Workspace (Toraidl Manifest)
-        run: |
-          git config --global user.name "GitHub Actions"
-          git config --global user.email "actions@github.com"
-          mkdir -p $GITHUB_WORKSPACE/android-kernel
-          cd $GITHUB_WORKSPACE/android-kernel
-          repo init -u https://github.com/toraidl/android_kernel_manifest -b oneplus/sm8350v_15.0.0_oneplus9pro --depth=1
-          repo sync -c -j$(nproc) --no-clone-bundle --no-tags
+          # Dependency Resolution: Clone LineageOS GCC wrappers (fixes empty AOSP GCC repo bug)
+          git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_aarch64_aarch64-linux-android-4.9 gcc-arm64
+          git clone --depth=1 https://github.com/LineageOS/android_prebuilts_gcc_linux-x86_arm_arm-linux-androideabi-4.9 gcc-arm32
 
-      - name: Verify Toolchain Version
-        run: |
-          cd $GITHUB_WORKSPACE/android-kernel
-          if [ ! -d "prebuilts/clang/host/linux-x86/clang-r487747c" ]; then
-            echo "ERROR: Required Clang r487747c missing! Workspace sync failed or manifest is incorrect."
-            exit 1
-          fi
-          prebuilts/clang/host/linux-x86/clang-r487747c/bin/clang --version
+          # Clone AnyKernel3
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3 kernel-zip
 
-      - name: Build Kernel (build.sh)
+      - name: Apply KMI & Vermagic Hacks (Commit 4c448df)
         run: |
-          cd $GITHUB_WORKSPACE/android-kernel
+          cd ${{ github.workspace }}/workspace/kernel
           
-          # Setup required AOSP GKI Build variables for Android 14 SM8350
-          export BUILD_CONFIG=kernel/msm-5.4/build.config.msm.lahaina
-          export OUT_DIR=out
-          export LTO=full
+          # Hack: Spoof localversion to "-qgki" inside kernel/sys.c to ensure Wi-Fi modules load perfectly
+          sed -i 's/UTS_RELEASE/UTS_RELEASE "-qgki"/g' kernel/sys.c
+          
+          # Hack: Disable KMI strict mode to allow custom kernel compilations without CRC panic
+          sed -i 's/CONFIG_KMI_SYMBOL_LIST_STRICT_MODE=y/# CONFIG_KMI_SYMBOL_LIST_STRICT_MODE is not set/g' arch/arm64/configs/vendor/lahaina-qgki_defconfig
+
+      - name: Compile Kernel Image
+        run: |
+          cd ${{ github.workspace }}/workspace/kernel
+          
+          export PATH="${{ github.workspace }}/workspace/clang-toolchain/bin:${{ github.workspace }}/workspace/gcc-arm64/bin:${{ github.workspace }}/workspace/gcc-arm32/bin:$PATH"
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export CROSS_COMPILE=aarch64-linux-android-
+          export CROSS_COMPILE_ARM32=arm-linux-androideabi-
+          export CC=clang
+          export CLANG_TRIPLE=aarch64-linux-gnu-
+          export LD=ld.lld
+          export AR=llvm-ar
+          export NM=llvm-nm
+          export OBJCOPY=llvm-objcopy
+          export OBJDUMP=llvm-objdump
           export LLVM=1
-          export LLVM_IAS=1
+          export LLD=1
+
+          # Apply Lahaina GKI Defconfig
+          make O=out ARCH=arm64 CC=clang LLVM=1 LLD=1 CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-android- CROSS_COMPILE_ARM32=arm-linux-androideabi- vendor/lahaina-qgki_defconfig
+
+          # Build Kernel Image
+          make -j$(nproc --all) O=out ARCH=arm64 CC=clang LLVM=1 LLD=1 CLANG_TRIPLE=aarch64-linux-gnu- CROSS_COMPILE=aarch64-linux-android- CROSS_COMPILE_ARM32=arm-linux-androideabi- Image
           
-          # Remove pesky -Werror flags that might break compilation on custom configs
-          find kernel/msm-5.4/ -type f \( -name "Makefile*" -o -name "Kbuild*" \) -exec sed -i 's/-Werror//g' {} + || true
-
-          # Execute the official build script
-          ./build/build.sh
-
-      - name: Package Kernel via AnyKernel3
+      - name: Repack via AnyKernel3
         run: |
-          cd $GITHUB_WORKSPACE
-          mkdir -p FinalOutput
-          
-          RAW_IMAGE=$(find $GITHUB_WORKSPACE/android-kernel/out -type f -name "Image" | head -n 1)
-          if [ -z "$RAW_IMAGE" ]; then
-            echo "ERROR: Kernel image not found in out directory!"
-            exit 1
-          fi
+          cd ${{ github.workspace }}/workspace/kernel-zip
+          cp ../kernel/out/arch/arm64/boot/Image .
+          sed -i 's/device.name1=.*/device.name1=lemonadep/' anykernel.sh
+          rm -rf patch ramdisk
+          zip -r9 ../lemonadep-stock-kernel-A14.zip * -x .git README.md *placeholder
 
-          echo "==> Fetching AnyKernel3 template..."
-          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
-          cd AnyKernel3
-
-          echo "==> Preparing anykernel.sh for OnePlus 9 Pro (lemonadep)..."
-          cat << 'EOF' > anykernel.sh
-          # AnyKernel3 Ramdisk Mod Script
-          properties() { '
-          kernel.string=Android 14 GKI OnePlus Kernel
-          do.devicecheck=1
-          do.modules=0
-          do.systemless=1
-          do.cleanup=1
-          do.cleanuponabort=0
-          device.name1=OnePlus9Pro
-          device.name2=lemonadep
-          device.name3=OnePlus9
-          device.name4=lemonade
-          supported.versions=11.0-14.0
-          supported.patchlevels=
-          '; }
-          block=/dev/block/bootdevice/by-name/boot;
-          is_slot_device=1;
-          ramdisk_compression=auto;
-          patch_vbmeta_flag=auto;
-          . tools/ak3-core.sh;
-          dump_boot;
-          patch_cmdline "androidboot.selinux" "androidboot.selinux=permissive"
-          patch_fstab fstab.qcom /vendor ext4 options "avb=vbmeta_vendor" ""
-          patch_fstab fstab.qcom /vendor ext4 options "avb_keys=.*" ""
-          write_boot;
-          EOF
-
-          echo "==> Injecting Kernel Image..."
-          cp "$RAW_IMAGE" ./Image
-          
-          # Copy DTB file if exist
-          DTB=$(find $GITHUB_WORKSPACE/android-kernel/out -type f -name "dtb" | head -n 1)
-          if [ -n "$DTB" ]; then cp "$DTB" ./dtb; fi
-
-          echo "==> Zipping Output..."
-          rm -rf .git README.md *placeholder
-          zip -r9 "$GITHUB_WORKSPACE/FinalOutput/OP9Pro-Android14-Kernel.zip" .
-
-      - name: Upload Final Artifacts
+      - name: Upload Kernel Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: OnePlus9Pro-A14-Kernel-Package
-          path: FinalOutput/*
+          name: lemonadep-stock-kernel-A14
+          path: ${{ github.workspace }}/workspace/lemonadep-stock-kernel-A14.zip
